@@ -86,6 +86,19 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// Serve static files from React build in production
+if (process.env.NODE_ENV === 'production') {
+  const path = require('path');
+  
+  // Serve static files from client/dist
+  app.use(express.static(path.join(__dirname, '../client/dist')));
+  
+  // Handle React routing - return index.html for all non-API routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+  });
+}
+
 // Start Event Completion Service
 const { checkAndCompleteEvents, sendFeedbackReminders, updateOngoingEvents } = require('./services/eventCompletionService');
 

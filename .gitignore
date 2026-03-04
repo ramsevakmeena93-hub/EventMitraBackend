@@ -46,6 +46,9 @@ desktop.ini
 .cache/
 .temp/
 
+# Vercel
+.vercel
+
 # AI-generated summary and documentation files (development only)
 *_SUMMARY.md
 *_COMPLETE.md
@@ -112,6 +115,10 @@ WORKFLOW_*.md
 CHECKLIST.md
 🎉_READ_ME_FIRST.txt
 ~$*.md
+PUSH_*.md
+PUSH_*.txt
+GIT_PUSH_*.md
+push-to-github.bat
 
 # Test files (development only)
 test-*.js
