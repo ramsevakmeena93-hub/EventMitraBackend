@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import EventCard from '../EventCard'
-import { Clock, CheckCircle, FileText, Edit, Plus, MessageSquare, User, Calendar, MapPin, Users } from 'lucide-react'
+import BookingTracker from '../BookingTracker'
+import HistorySection from '../HistorySection'
+import { Clock, CheckCircle, FileText, Edit, Plus, MessageSquare, Calendar, MapPin, History } from 'lucide-react'
 
 const ABCDashboard = () => {
   const [pendingEvents, setPendingEvents] = useState([])
@@ -11,36 +12,42 @@ const ABCDashboard = () => {
   const [stats, setStats] = useState({})
   const [superAdmins, setSuperAdmins] = useState([])
   const [venues, setVenues] = useState([])
-  const [faculty, setFaculty] = useState([])
-  const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [editingEvent, setEditingEvent] = useState(null)
   const [forwardingEvent, setForwardingEvent] = useState(null)
-  const [fullEditingEvent, setFullEditingEvent] = useState(null)
+  const [editingEvent, setEditingEvent] = useState(null)
+  const [selectedSuperAdmins, setSelectedSuperAdmins] = useState([])
+  const [showSADropdown, setShowSADropdown] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [activeTab, setActiveTab] = useState('pending')
+  const [createVenueId, setCreateVenueId] = useState('')
+  const [hods, setHods] = useState([])
 
   useEffect(() => {
     fetchData()
     fetchSuperAdmins()
     fetchVenues()
-    fetchFaculty()
-    fetchStudents()
+    fetchHods()
     window.addEventListener('eventUpdate', fetchData)
     return () => window.removeEventListener('eventUpdate', fetchData)
   }, [])
 
   const fetchData = async () => {
     try {
-      const [pendingRes, allRes, statsRes] = await Promise.all([
+      const [pendingRes, allRes, statsRes] = await Promise.allSettled([
         axios.get('/api/events/pending'),
-        axios.get('/api/events/my-events'),
+        axios.get('/api/events/all'),
         axios.get('/api/dashboard/stats')
       ])
-      setPendingEvents(pendingRes.data)
-      setAllEvents(allRes.data)
-      setStats(statsRes.data)
+      if (pendingRes.status === 'fulfilled') setPendingEvents(pendingRes.value.data)
+      else console.error('[ABC] pending fetch failed:', pendingRes.reason?.response?.data || pendingRes.reason?.message)
+      if (allRes.status === 'fulfilled') setAllEvents(allRes.value.data)
+      else console.error('[ABC] all events fetch failed:', allRes.reason?.response?.data || allRes.reason?.message)
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data)
+      else console.error('[ABC] stats fetch failed:', statsRes.reason?.response?.data || statsRes.reason?.message)
     } catch (error) {
+      console.error('[ABC] fetchData error:', error)
       toast.error('Failed to fetch data')
     } finally {
       setLoading(false)
@@ -60,46 +67,51 @@ const ABCDashboard = () => {
     try {
       const { data } = await axios.get('/api/venues')
       setVenues(data)
+      console.log('[ABCDashboard] Venues loaded:', data.length)
     } catch (error) {
-      console.error('Failed to fetch venues')
+      console.error('Failed to fetch venues:', error.response?.data || error.message)
+      toast.error('Failed to load venues')
     }
   }
 
-  const fetchFaculty = async () => {
+  const fetchHods = async () => {
     try {
-      const { data } = await axios.get('/api/users/faculty')
-      setFaculty(data)
+      const { data } = await axios.get('/api/users/hods')
+      setHods(data)
     } catch (error) {
-      console.error('Failed to fetch faculty')
+      // non-critical, silently fail
+      console.error('Failed to fetch HODs:', error.message)
     }
   }
 
-  const fetchStudents = async () => {
-    try {
-      const { data } = await axios.get('/api/users/students')
-      setStudents(data)
-    } catch (error) {
-      console.error('Failed to fetch students')
-    }
+  const handleEdit = (event) => {
+    setEditingEvent({
+      ...event,
+      newDate: new Date(event.date).toISOString().split('T')[0],
+      newStartTime: event.startTime || '',
+      newEndTime: event.endTime || '',
+      newVenueId: event.venueId?._id || ''
+    })
   }
 
-  const handleApprove = async (event, selectedSuperAdminId, comment) => {
-    if (!selectedSuperAdminId) {
-      toast.error('Please select a Super Admin')
-      return
+  const submitEdit = async (e) => {
+    e.preventDefault()
+    const formData = new FormData(e.target)
+    const updates = {
+      date: formData.get('date'),
+      startTime: formData.get('startTime'),
+      endTime: formData.get('endTime'),
+      venueId: formData.get('venueId'),
+      comment: formData.get('comment')
     }
-
     setActionLoading(true)
     try {
-      await axios.post(`/api/events/${event._id}/approve`, { 
-        superAdminId: selectedSuperAdminId,
-        comment: comment || undefined
-      })
-      toast.success('Event approved and forwarded to Super Admin!')
+      await axios.post(`/api/events/${editingEvent._id}/abc-modify`, updates)
+      toast.success('Event time/venue updated!')
       setEditingEvent(null)
       fetchData()
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to approve event')
+      toast.error(error.response?.data?.message || 'Failed to update event')
     } finally {
       setActionLoading(false)
     }
@@ -121,122 +133,46 @@ const ABCDashboard = () => {
     }
   }
 
-  const handleEdit = (event) => {
-    setEditingEvent({
-      ...event,
-      newDate: new Date(event.date).toISOString().split('T')[0],
-      newStartTime: event.startTime || '',
-      newEndTime: event.endTime || '',
-      newVenueId: event.venueId?._id || ''
-    })
-  }
-
   const handleForward = (event) => {
-    setForwardingEvent({
-      ...event,
-      selectedSuperAdmin: '',
-      comment: ''
-    })
+    setForwardingEvent({ ...event })
+    setSelectedSuperAdmins([])
+    setShowSADropdown(false)
   }
 
-  const handleFullEdit = (event) => {
-    setFullEditingEvent({
-      ...event,
-      newDate: new Date(event.date).toISOString().split('T')[0],
-      newStartTime: event.startTime || '',
-      newEndTime: event.endTime || '',
-      newVenueId: event.venueId?._id || '',
-      newFacultyId: event.facultyId?._id || '',
-      newStudentId: event.studentId?._id || '',
-      newReason: event.reason || ''
-    })
-  }
-
-  const submitEdit = async (e) => {
-    e.preventDefault()
-    const formData = new FormData(e.target)
-    
-    const updates = {
-      date: formData.get('date'),
-      startTime: formData.get('startTime'),
-      endTime: formData.get('endTime'),
-      venueId: formData.get('venueId')
-    }
-
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${editingEvent._id}/abc-modify`, updates)
-      toast.success('Event updated successfully! Student needs to accept changes.')
-      setEditingEvent(null)
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update event')
-    } finally {
-      setActionLoading(false)
-    }
+  const toggleSuperAdmin = (id) => {
+    setSelectedSuperAdmins(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
   }
 
   const submitForward = async (e) => {
     e.preventDefault()
     const formData = new FormData(e.target)
-    
-    const superAdminId = formData.get('superAdminId')
     const comment = formData.get('comment')
     const giveFinalApproval = formData.get('giveFinalApproval') === 'on'
 
-    // Validate: either give final approval OR select super admin
-    if (!giveFinalApproval && !superAdminId) {
-      toast.error('Please either check "Give Final Approval" or select a Super Admin')
+    if (!giveFinalApproval && selectedSuperAdmins.length === 0) {
+      toast.error('Please either check "Give Final Approval" or select at least one Super Admin')
       return
     }
 
     setActionLoading(true)
     try {
-      await axios.post(`/api/events/${forwardingEvent._id}/approve`, { 
-        superAdminId: superAdminId || undefined,
+      await axios.post(`/api/events/${forwardingEvent._id}/approve`, {
+        superAdminIds: selectedSuperAdmins.length > 0 ? selectedSuperAdmins : undefined,
         comment: comment || undefined,
         abcFinalApproval: giveFinalApproval
       })
-      
       if (giveFinalApproval) {
         toast.success('Event finally approved by ABC! Ready for key collection.')
       } else {
-        toast.success('Event forwarded to Super Admin!')
+        toast.success(`Event forwarded to ${selectedSuperAdmins.length} Super Admin(s)!`)
       }
-      
       setForwardingEvent(null)
+      setSelectedSuperAdmins([])
       fetchData()
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to process event')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const submitFullEdit = async (e) => {
-    e.preventDefault()
-    const formData = new FormData(e.target)
-    
-    const updates = {
-      date: formData.get('date'),
-      startTime: formData.get('startTime'),
-      endTime: formData.get('endTime'),
-      venueId: formData.get('venueId'),
-      facultyId: formData.get('facultyId'),
-      studentId: formData.get('studentId'),
-      reason: formData.get('reason'),
-      comment: formData.get('comment'),
-      superAdminId: formData.get('superAdminId')
-    }
-
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${fullEditingEvent._id}/abc-edit`, updates)
-      toast.success('Event fully updated and forwarded to Super Admin!')
-      setFullEditingEvent(null)
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update event')
     } finally {
       setActionLoading(false)
     }
@@ -247,24 +183,34 @@ const ABCDashboard = () => {
     const formData = new FormData(e.target)
     
     const eventData = {
-      studentId: formData.get('studentId'),
-      facultyId: formData.get('facultyId'),
-      venueId: formData.get('venueId'),
+      venueId: createVenueId || formData.get('venueId'),
       date: formData.get('date'),
       startTime: formData.get('startTime'),
       endTime: formData.get('endTime'),
       reason: formData.get('reason'),
-      createdByABC: true
+      clubName: formData.get('clubName') || undefined
     }
 
+    // Frontend validation before sending
+    if (!eventData.venueId) return toast.error('Please select a venue')
+    if (!eventData.date) return toast.error('Please select a date')
+    if (!eventData.startTime) return toast.error('Please select start time')
+    if (!eventData.endTime) return toast.error('Please select end time')
+    if (!eventData.reason?.trim()) return toast.error('Please enter a reason')
+    if (eventData.startTime >= eventData.endTime) return toast.error('End time must be after start time')
+
     setActionLoading(true)
+    console.log('[ABC Create] Sending:', eventData)
     try {
-      await axios.post('/api/events/abc-create', eventData)
-      toast.success('Event created successfully!')
+      const res = await axios.post('/api/events/abc-create', eventData)
+      toast.success(`Event created! ${res.data.workflow || ''}`)
       setShowCreateForm(false)
+      setCreateVenueId('')
       fetchData()
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to create event')
+      const msg = error.response?.data?.message || error.message || 'Failed to create event'
+      console.error('[ABC Create] Error:', error.response?.data || error.message)
+      toast.error(msg)
     } finally {
       setActionLoading(false)
     }
@@ -282,14 +228,14 @@ const ABCDashboard = () => {
       className: 'bg-green-600 text-white hover:bg-green-700'
     },
     {
-      label: 'Full Edit',
-      action: 'fullEdit',
-      className: 'bg-purple-600 text-white hover:bg-purple-700'
-    },
-    {
       label: 'Reject',
       action: 'reject',
       className: 'bg-red-600 text-white hover:bg-red-700'
+    },
+    {
+      label: 'Track Status',
+      action: 'view',
+      className: 'bg-indigo-600 text-white hover:bg-indigo-700'
     }
   ]
 
@@ -298,10 +244,10 @@ const ABCDashboard = () => {
       handleEdit(event)
     } else if (action === 'forward') {
       handleForward(event)
-    } else if (action === 'fullEdit') {
-      handleFullEdit(event)
     } else if (action === 'reject') {
       handleReject(event)
+    } else if (action === 'view') {
+      setSelectedEvent(event)
     }
   }
 
@@ -400,45 +346,10 @@ const ABCDashboard = () => {
             <Plus className="w-6 h-6 text-purple-600" />
             Create New Event (ABC Admin)
           </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            HOD will be auto-assigned based on the selected venue. No student or faculty selection needed.
+          </p>
           <form onSubmit={handleCreateEvent} className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                <User className="w-4 h-4 inline mr-1" />
-                Select Student
-              </label>
-              <select
-                name="studentId"
-                required
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">Choose student</option>
-                {students.map(student => (
-                  <option key={student._id} value={student._id}>
-                    {student.name} - {student.enrollmentNo}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                <Users className="w-4 h-4 inline mr-1" />
-                Select Faculty
-              </label>
-              <select
-                name="facultyId"
-                required
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">Choose faculty</option>
-                {faculty.map(fac => (
-                  <option key={fac._id} value={fac._id}>
-                    {fac.name} - {fac.department}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 <MapPin className="w-4 h-4 inline mr-1" />
@@ -447,15 +358,60 @@ const ABCDashboard = () => {
               <select
                 name="venueId"
                 required
+                value={createVenueId}
+                onChange={e => setCreateVenueId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
               >
                 <option value="">Choose venue</option>
                 {venues.map(venue => (
                   <option key={venue._id} value={venue._id}>
-                    {venue.building} - {venue.room}
+                    {venue.name || `${venue.building || ""} ${venue.room || ""}`.trim() || "Unnamed Venue"}
                   </option>
                 ))}
               </select>
+
+              {/* HOD auto-assign preview */}
+              {createVenueId && (() => {
+                const v = venues.find(x => x._id === createVenueId)
+                if (!v) return null
+                const isSeminar = v.name && /seminar hall/i.test(v.name)
+                const matchedHod = hods.find(h =>
+                  h.department && v.hodDepartment &&
+                  h.department.toLowerCase().trim() === v.hodDepartment.toLowerCase().trim()
+                ) || (isSeminar ? hods[0] : null)
+
+                return (
+                  <div className={`mt-2 p-3 rounded-lg text-sm flex items-start gap-2 ${matchedHod ? 'bg-green-50 dark:bg-green-900/20 border border-green-300 dark:border-green-700' : 'bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700'}`}>
+                    <span className="text-lg">{matchedHod ? '✅' : '⚠️'}</span>
+                    <div>
+                      {matchedHod ? (
+                        <>
+                          <p className="font-semibold text-green-700 dark:text-green-400">HOD Auto-Assigned</p>
+                          <p className="text-green-600 dark:text-green-300">{matchedHod.name} <span className="text-xs opacity-75">({matchedHod.department})</span></p>
+                          <p className="text-xs text-green-500 dark:text-green-400 mt-0.5">Event will go to HOD first, then back to ABC</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-yellow-700 dark:text-yellow-400">No HOD Found</p>
+                          <p className="text-xs text-yellow-600 dark:text-yellow-300">Event will go directly to ABC for approval</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Club / Organization Name (Optional)
+              </label>
+              <input
+                type="text"
+                name="clubName"
+                placeholder="e.g. Tech Club, Cultural Committee"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              />
             </div>
 
             <div>
@@ -506,14 +462,14 @@ const ABCDashboard = () => {
 
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Reason
+                Event Purpose / Reason
               </label>
               <textarea
                 name="reason"
                 required
                 rows="3"
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                placeholder="Enter reason for event..."
+                placeholder="Enter purpose or reason for this event..."
               />
             </div>
 
@@ -527,7 +483,7 @@ const ABCDashboard = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setShowCreateForm(false)}
+                onClick={() => { setShowCreateForm(false); setCreateVenueId('') }}
                 className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700"
               >
                 Cancel
@@ -537,21 +493,16 @@ const ABCDashboard = () => {
         </div>
       )}
 
-      {/* Edit Time/Venue Form (Simple Edit) */}
+      {/* Edit Time/Venue Form */}
       {editingEvent && (
         <div className="mb-8 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-gray-800 dark:to-gray-700 p-6 rounded-xl shadow-lg border-2 border-blue-200 dark:border-blue-800">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <Edit className="w-6 h-6 text-blue-600" />
-            Edit Time & Venue Only
+            Edit Time &amp; Venue
           </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Modify venue, date, and time. Student will need to accept changes.
-          </p>
           <form onSubmit={submitEdit} className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Venue
-              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Venue</label>
               <select
                 name="venueId"
                 defaultValue={editingEvent.newVenueId}
@@ -559,67 +510,45 @@ const ABCDashboard = () => {
               >
                 {venues.map(venue => (
                   <option key={venue._id} value={venue._id}>
-                    {venue.building} - {venue.room}
+                    {venue.name || `${venue.building || ''} ${venue.room || ''}`.trim() || 'Unnamed Venue'}
                   </option>
                 ))}
               </select>
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                name="date"
-                defaultValue={editingEvent.newDate}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
+              <input type="date" name="date" defaultValue={editingEvent.newDate}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Start Time
-              </label>
-              <select
-                name="startTime"
-                defaultValue={editingEvent.newStartTime}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {timeSlots.map(slot => (
-                  <option key={slot.value} value={slot.value}>{slot.label}</option>
-                ))}
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Time</label>
+              <select name="startTime" defaultValue={editingEvent.newStartTime}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white">
+                {timeSlots.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
               </select>
             </div>
-
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                End Time
-              </label>
-              <select
-                name="endTime"
-                defaultValue={editingEvent.newEndTime}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {timeSlots.map(slot => (
-                  <option key={slot.value} value={slot.value}>{slot.label}</option>
-                ))}
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Time</label>
+              <select name="endTime" defaultValue={editingEvent.newEndTime}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white">
+                {timeSlots.map(slot => <option key={slot.value} value={slot.value}>{slot.label}</option>)}
               </select>
             </div>
-
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> Reason for Change (Comment)
+              </label>
+              <textarea name="comment" rows="3" required
+                placeholder="Explain why you are changing the time/venue..."
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
+            </div>
             <div className="md:col-span-2 flex gap-2">
-              <button
-                type="submit"
-                disabled={actionLoading}
-                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
+              <button type="submit" disabled={actionLoading}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 Save Changes
               </button>
-              <button
-                type="button"
-                onClick={() => setEditingEvent(null)}
-                className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700"
-              >
+              <button type="button" onClick={() => setEditingEvent(null)}
+                className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700">
                 Cancel
               </button>
             </div>
@@ -657,16 +586,6 @@ const ABCDashboard = () => {
                   type="checkbox"
                   name="giveFinalApproval"
                   className="w-5 h-5 text-green-600 rounded focus:ring-2 focus:ring-green-500"
-                  onChange={(e) => {
-                    const superAdminSelect = e.target.form.querySelector('select[name="superAdminId"]');
-                    if (superAdminSelect) {
-                      superAdminSelect.disabled = e.target.checked;
-                      superAdminSelect.required = !e.target.checked;
-                      if (e.target.checked) {
-                        superAdminSelect.value = '';
-                      }
-                    }
-                  }}
                 />
                 <div>
                   <span className="font-semibold text-gray-900 dark:text-white">
@@ -679,23 +598,43 @@ const ABCDashboard = () => {
               </label>
             </div>
 
-            <div>
+            <div className="relative">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                OR Select Super Admin to Forward
+                OR Select Super Admins to Forward
               </label>
-              <select
-                name="superAdminId"
-                className="w-full px-3 py-2 border-2 border-green-300 dark:border-green-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              <button
+                type="button"
+                onClick={() => setShowSADropdown(v => !v)}
+                className="w-full px-3 py-2 border-2 border-green-300 dark:border-green-600 rounded-lg dark:bg-gray-700 dark:text-white text-left flex justify-between items-center"
               >
-                <option value="">Choose Super Admin (Dean/Principal/Director)</option>
-                {superAdmins.map(admin => (
-                  <option key={admin._id} value={admin._id}>
-                    {admin.name} - {admin.email}
-                  </option>
-                ))}
-              </select>
+                <span className="text-sm">
+                  {selectedSuperAdmins.length === 0
+                    ? 'Click to select Super Admin(s)...'
+                    : `${selectedSuperAdmins.length} selected: ${superAdmins.filter(a => selectedSuperAdmins.includes(a._id)).map(a => a.name).join(', ')}`}
+                </span>
+                <span className="text-gray-400">{showSADropdown ? '▲' : '▼'}</span>
+              </button>
+              {showSADropdown && (
+                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border-2 border-green-300 dark:border-green-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {superAdmins.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-gray-500">No Super Admins found</p>
+                  ) : superAdmins.map(admin => (
+                    <label key={admin._id} className="flex items-center gap-3 px-3 py-2 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedSuperAdmins.includes(admin._id)}
+                        onChange={() => toggleSuperAdmin(admin._id)}
+                        className="w-4 h-4 text-green-600 rounded"
+                      />
+                      <span className="text-sm text-gray-800 dark:text-gray-200">
+                        {admin.name} <span className="text-xs text-gray-500">({admin.email})</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Leave empty if giving final approval yourself
+                Leave empty if giving final approval yourself.
               </p>
             </div>
 
@@ -720,181 +659,24 @@ const ABCDashboard = () => {
         </div>
       )}
 
-      {/* Full Edit Form (Edit Everything) */}
-      {fullEditingEvent && (
-        <div className="mb-8 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-gray-800 dark:to-gray-700 p-6 rounded-xl shadow-lg border-2 border-purple-200 dark:border-purple-800">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-            <Edit className="w-6 h-6 text-purple-600" />
-            Full Edit - Change Everything
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Modify all details including student, faculty, and reason. Forward to Super Admin after editing.
-          </p>
-          <form onSubmit={submitFullEdit} className="grid md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Student
-              </label>
-              <select
-                name="studentId"
-                defaultValue={fullEditingEvent.newStudentId}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {students.map(student => (
-                  <option key={student._id} value={student._id}>
-                    {student.name} - {student.enrollmentNo}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200 dark:border-gray-700">
+        {[
+          { key: 'pending', label: `Pending (${pendingEvents.length})`, icon: Clock },
+          { key: 'all', label: `All Events (${allEvents.length})`, icon: FileText },
+          { key: 'history', label: 'My History', icon: History },
+        ].map(({ key, label, icon: Icon }) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${activeTab === key ? 'border-purple-600 text-purple-600 dark:text-purple-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Faculty
-              </label>
-              <select
-                name="facultyId"
-                defaultValue={fullEditingEvent.newFacultyId}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {faculty.map(fac => (
-                  <option key={fac._id} value={fac._id}>
-                    {fac.name} - {fac.department}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Venue
-              </label>
-              <select
-                name="venueId"
-                defaultValue={fullEditingEvent.newVenueId}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {venues.map(venue => (
-                  <option key={venue._id} value={venue._id}>
-                    {venue.building} - {venue.room}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                name="date"
-                defaultValue={fullEditingEvent.newDate}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Start Time
-              </label>
-              <select
-                name="startTime"
-                defaultValue={fullEditingEvent.newStartTime}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {timeSlots.map(slot => (
-                  <option key={slot.value} value={slot.value}>{slot.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                End Time
-              </label>
-              <select
-                name="endTime"
-                defaultValue={fullEditingEvent.newEndTime}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                {timeSlots.map(slot => (
-                  <option key={slot.value} value={slot.value}>{slot.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Reason
-              </label>
-              <textarea
-                name="reason"
-                defaultValue={fullEditingEvent.newReason}
-                rows="2"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                ABC Comment (Optional)
-              </label>
-              <textarea
-                name="comment"
-                rows="3"
-                placeholder="Add your comments or notes about this booking..."
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                <span className="text-red-500">*</span> Select Super Admin
-              </label>
-              <select
-                name="superAdminId"
-                required
-                className="w-full px-3 py-2 border-2 border-purple-300 dark:border-purple-600 rounded-lg dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">Choose Super Admin (Dean/Registrar)</option>
-                {superAdmins.map(admin => (
-                  <option key={admin._id} value={admin._id}>
-                    {admin.name} - {admin.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-2 flex gap-2">
-              <button
-                type="submit"
-                disabled={actionLoading}
-                className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-6 py-2 rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:opacity-50"
-              >
-                Save All & Forward to Super Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => setFullEditingEvent(null)}
-                className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Pending Approvals */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-          Pending Approvals
-        </h2>
+      {activeTab === 'pending' && (
         <div className="grid md:grid-cols-2 gap-4">
           {pendingEvents.length === 0 ? (
-            <p className="text-gray-600 dark:text-gray-400">No pending approvals</p>
+            <p className="text-gray-600 dark:text-gray-400 col-span-2 py-8 text-center">No pending approvals</p>
           ) : (
             pendingEvents.map((event) => (
               <EventCard
@@ -907,19 +689,38 @@ const ABCDashboard = () => {
             ))
           )}
         </div>
-      </div>
+      )}
 
-      {/* All Events */}
-      <div>
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-          All Events
-        </h2>
-        <div className="grid md:grid-cols-2 gap-4">
-          {allEvents.map((event) => (
-            <EventCard key={event._id} event={event} />
-          ))}
+      {activeTab === 'all' && (
+        <div className="grid lg:grid-cols-2 gap-8">
+          <div className="space-y-4">
+            {allEvents.length === 0 ? (
+              <p className="text-gray-500 dark:text-gray-400 py-8 text-center">No events found</p>
+            ) : allEvents.map((event) => (
+              <EventCard
+                key={event._id}
+                event={event}
+                showActions={true}
+                actionButtons={[{ label: 'Track Status', action: 'view', className: 'bg-blue-600 text-white hover:bg-blue-700' }]}
+                onAction={handleAction}
+              />
+            ))}
+          </div>
+          {selectedEvent && (
+            <div className="sticky top-8">
+              <div className="mb-4 flex justify-between items-center">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Event Tracker</h2>
+                <button onClick={() => setSelectedEvent(null)} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600">Close</button>
+              </div>
+              <BookingTracker event={selectedEvent} />
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {activeTab === 'history' && (
+        <HistorySection events={allEvents} role="abc" />
+      )}
     </div>
   )
 }

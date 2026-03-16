@@ -7,8 +7,8 @@ import { AuthProvider } from './context/AuthContext.jsx'
 import { ThemeProvider } from './context/ThemeContext.jsx'
 import { SocketProvider } from './context/SocketContext.jsx'
 
-// Configure axios base URL
-axios.defaults.baseURL = 'http://localhost:5000'
+// Configure axios base URL - uses env variable in production, localhost in dev
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

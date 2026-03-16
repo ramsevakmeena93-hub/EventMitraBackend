@@ -11,32 +11,52 @@ const Home = () => {
   const [stats, setStats] = useState({ total: 0, approved: 0, pending: 0 })
 
   useEffect(() => {
-    fetchApprovedEvents()
+    console.log('[Home] Component mounted, user:', user ? 'logged in' : 'not logged in')
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      console.log('[Home] Auto-refreshing events...')
+    // Only fetch events if user is logged in
+    if (user) {
       fetchApprovedEvents()
-    }, 30000)
-    
-    return () => clearInterval(interval)
-  }, [])
+      
+      // Auto-refresh every 30 seconds
+      const interval = setInterval(() => {
+        console.log('[Home] Auto-refreshing events...')
+        fetchApprovedEvents()
+      }, 30000)
+      
+      return () => clearInterval(interval)
+    } else {
+      // Clear events when logged out
+      setBookings([])
+      setStats({ total: 0, approved: 0, pending: 0 })
+    }
+  }, [user])
 
   const fetchApprovedEvents = async () => {
+    // Only fetch if user is logged in
+    if (!user) {
+      console.log('[Home] User not logged in, skipping event fetch')
+      setBookings([])
+      return
+    }
+    
     setLoading(true)
     try {
-      console.log('[Home] Fetching approved events...')
+      console.log('[Home] Fetching approved events from /api/events/public/approved')
       // Fetch only approved events that are upcoming or ongoing
-      const { data } = await axios.get('/api/events/public/approved')
-      console.log('[Home] Received events:', data.length)
-      setBookings(data)
+      // This endpoint requires authentication (college login)
+      const response = await axios.get('/api/events/public/approved')
+      console.log('[Home] Response received:', response.status, response.data)
+      console.log('[Home] Number of events:', response.data.length)
+      setBookings(response.data)
       setStats({
-        total: data.length,
-        approved: data.filter(b => b.eventStatus === 'upcoming' || b.eventStatus === 'ongoing').length,
+        total: response.data.length,
+        approved: response.data.filter(b => b.eventStatus === 'upcoming' || b.eventStatus === 'ongoing').length,
         pending: 0
       })
     } catch (error) {
       console.error('[Home] Error fetching events:', error)
+      console.error('[Home] Error details:', error.response?.data || error.message)
+      setBookings([])
     } finally {
       setLoading(false)
     }
@@ -197,31 +217,32 @@ const Home = () => {
           )}
         </div>
 
-        {/* All Approved Events Section (Visible to Everyone) */}
-        <div className="mb-20">
-          <div className="flex items-center justify-between mb-10">
-            <h2 className="text-4xl font-bold text-white flex items-center gap-4">
-              <div className="p-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl">
-                <Calendar className="w-8 h-8 text-white" />
-              </div>
-              Upcoming College Events
-            </h2>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={fetchApprovedEvents}
-                disabled={loading}
-                className="px-6 py-3 bg-gradient-to-r from-green-600/20 to-emerald-600/20 backdrop-blur-md rounded-xl border border-green-500/30 hover:border-green-500/50 transition-all flex items-center gap-2 text-green-300 font-semibold disabled:opacity-50"
-              >
-                <svg className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {loading ? 'Refreshing...' : 'Refresh'}
-              </button>
-              <div className="px-6 py-3 bg-gradient-to-r from-purple-600/20 to-blue-600/20 backdrop-blur-md rounded-xl border border-purple-500/30">
-                <span className="text-purple-300 font-bold text-lg">{bookings.length} Events</span>
+        {/* All Approved Events Section (Visible only to logged-in users) */}
+        {user && (
+          <div className="mb-20">
+            <div className="flex items-center justify-between mb-10">
+              <h2 className="text-4xl font-bold text-white flex items-center gap-4">
+                <div className="p-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl">
+                  <Calendar className="w-8 h-8 text-white" />
+                </div>
+                Upcoming College Events
+              </h2>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={fetchApprovedEvents}
+                  disabled={loading}
+                  className="px-6 py-3 bg-gradient-to-r from-green-600/20 to-emerald-600/20 backdrop-blur-md rounded-xl border border-green-500/30 hover:border-green-500/50 transition-all flex items-center gap-2 text-green-300 font-semibold disabled:opacity-50"
+                >
+                  <svg className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {loading ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <div className="px-6 py-3 bg-gradient-to-r from-purple-600/20 to-blue-600/20 backdrop-blur-md rounded-xl border border-purple-500/30">
+                  <span className="text-purple-300 font-bold text-lg">{bookings.length} Events</span>
+                </div>
               </div>
             </div>
-          </div>
 
             {loading ? (
               <div className="flex justify-center items-center py-32">
@@ -313,6 +334,7 @@ const Home = () => {
               </div>
             )}
           </div>
+        )}
 
         {/* Enhanced Features Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-20">

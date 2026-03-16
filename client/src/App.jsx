@@ -22,7 +22,7 @@ function App() {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors flex flex-col">
         <Navbar />
         <Toaster position="top-right" />
-        <main className="flex-grow">
+        <main className="flex-grow pt-16">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />

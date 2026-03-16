@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import StudentDashboard from '../components/dashboards/StudentDashboard'
 import FacultyDashboard from '../components/dashboards/FacultyDashboard'
@@ -8,7 +7,18 @@ import SuperAdminDashboard from '../components/dashboards/SuperAdminDashboard'
 import RegistrarDashboard from '../components/dashboards/RegistrarDashboard'
 
 const Dashboard = () => {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 dark:text-gray-400 text-base">Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
   const renderDashboard = () => {
     switch (user?.role) {
