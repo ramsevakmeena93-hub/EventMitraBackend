@@ -84,7 +84,7 @@ app.use('/api/feedback', require('./routes/feedback'));
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+  res.json({ status: 'ok', message: 'Server is running', version: '2.0' });
 });
 
 // Serve static files from React build in production
