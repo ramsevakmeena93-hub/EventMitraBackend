@@ -54,6 +54,12 @@ const userSchema = new mongoose.Schema({
     ref: 'Club',
     required: false
   },
+  // Gmail App Password for sending emails on behalf of faculty
+  gmailAppPassword: {
+    type: String,
+    required: false,
+    select: false // Never returned in normal queries
+  },
   isActive: {
     type: Boolean,
     default: true

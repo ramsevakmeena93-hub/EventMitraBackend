@@ -293,34 +293,42 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
     await event.save();
     console.log('[create-event] Event saved to database:', event._id);
 
+    // Fetch faculty's Gmail App Password (select: false field)
+    const facultyWithPass = await User.findById(req.userId).select('+gmailAppPassword');
+    const facultyEmailCreds = facultyWithPass?.gmailAppPassword
+      ? { fromEmail: faculty.email, fromPassword: facultyWithPass.gmailAppPassword, fromName: faculty.name }
+      : {};
+
     // Send emails (wrapped in try-catch to not block event creation)
     try {
-      // Send email to faculty (applicant)
+      // Confirmation email to faculty themselves
       await sendEmail({
         to: faculty.email,
-        subject: 'Event Application Submitted',
+        subject: 'Event Application Submitted - EventMitra',
         html: emailTemplates.eventSubmitted(faculty.name, {
           venue: venue.name,
           date: bookingDate.toLocaleDateString(),
           time: timeDisplay,
           reason
-        })
+        }),
+        ...facultyEmailCreds
       });
-      console.log('[create-event] Email sent to faculty');
+      console.log('[create-event] Confirmation email sent to faculty');
 
-      // Notify HOD if assigned, otherwise notify ABC directly
+      // Notify HOD if assigned, otherwise notify ABC (Student Dean Welfare) directly
       if (hod) {
         await sendEmail({
           to: hod.email,
-          subject: 'New Event Approval Required',
+          subject: `New Event Approval Required from ${faculty.name}`,
           html: emailTemplates.pendingApproval(hod.name, 'HOD', faculty.name, {
             venue: venue.name,
             date: bookingDate.toLocaleDateString(),
             time: timeDisplay,
             reason
-          })
+          }),
+          ...facultyEmailCreds
         });
-        console.log('[create-event] Email sent to HOD');
+        console.log('[create-event] Email sent to HOD from faculty Gmail');
         if (io) {
           emitNotification(io, hod._id.toString(), {
             type: 'new_event',
@@ -329,19 +337,20 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
           });
         }
       } else {
-        // No HOD found — notify ABC directly
+        // No HOD — notify ABC (Student Dean Welfare) directly from faculty's Gmail
         const abcUsers = await User.find({ role: 'abc', isActive: true });
-        console.log(`[create-event] Notifying ${abcUsers.length} ABC users`);
+        console.log(`[create-event] Notifying ${abcUsers.length} ABC (Student Dean Welfare) users`);
         for (const abc of abcUsers) {
           await sendEmail({
             to: abc.email,
-            subject: 'New Event Approval Required',
-            html: emailTemplates.pendingApproval(abc.name, 'ABC', faculty.name, {
+            subject: `New Event Approval Required from ${faculty.name}`,
+            html: emailTemplates.pendingApproval(abc.name, 'Student Dean Welfare', faculty.name, {
               venue: venue.name,
               date: bookingDate.toLocaleDateString(),
               time: timeDisplay,
               reason
-            })
+            }),
+            ...facultyEmailCreds
           });
           if (io) {
             emitNotification(io, abc._id.toString(), {
@@ -351,10 +360,10 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
             });
           }
         }
+        console.log('[create-event] Email sent to ABC from faculty Gmail');
       }
     } catch (emailError) {
       console.error('[create-event] Email sending failed (non-critical):', emailError.message);
-      // Don't fail the request if email fails
     }
 
     // Emit socket update (fixed - collect all relevant user IDs)

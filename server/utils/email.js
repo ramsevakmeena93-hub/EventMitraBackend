@@ -1,6 +1,6 @@
 const nodemailer = require('nodemailer');
 
-// Check if email is configured
+// Check if system email is configured
 const isEmailConfigured = () => {
   return (
     process.env.EMAIL_USER &&
@@ -10,41 +10,62 @@ const isEmailConfigured = () => {
   );
 };
 
-let transporter = null;
+let systemTransporter = null;
 
-const getTransporter = () => {
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
+const getSystemTransporter = () => {
+  if (!systemTransporter) {
+    systemTransporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.EMAIL_PORT) || 587,
       secure: false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      tls: { rejectUnauthorized: false }
     });
   }
-  return transporter;
+  return systemTransporter;
 };
 
-const sendEmail = async ({ to, subject, html }) => {
-  if (!isEmailConfigured()) {
+// Create transporter for a specific faculty Gmail
+const getFacultyTransporter = (facultyEmail, appPassword) => {
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    auth: { user: facultyEmail, pass: appPassword },
+    tls: { rejectUnauthorized: false }
+  });
+};
+
+/**
+ * Send email — uses faculty's own Gmail if available, else system Gmail
+ * @param {object} options - { to, subject, html, fromEmail, fromPassword, fromName }
+ */
+const sendEmail = async ({ to, subject, html, fromEmail, fromPassword, fromName }) => {
+  let transporter;
+  let senderAddress;
+
+  if (fromEmail && fromPassword) {
+    // Send from faculty's own Gmail
+    transporter = getFacultyTransporter(fromEmail, fromPassword);
+    senderAddress = `"${fromName || 'EventMitra'}" <${fromEmail}>`;
+    console.log(`[Email] Using faculty Gmail: ${fromEmail}`);
+  } else if (isEmailConfigured()) {
+    // Send from system Gmail
+    transporter = getSystemTransporter();
+    senderAddress = `"EventMitra" <${process.env.EMAIL_USER}>`;
+    console.log(`[Email] Using system Gmail: ${process.env.EMAIL_USER}`);
+  } else {
     console.log(`[Email] SKIPPED (not configured) → To: ${to} | Subject: ${subject}`);
     return { success: false, error: 'Email not configured' };
   }
 
   try {
-    const mailOptions = {
-      from: `"EventMitra" <${process.env.EMAIL_USER}>`,
+    const info = await transporter.sendMail({
+      from: senderAddress,
       to,
       subject,
       html
-    };
-
-    const info = await getTransporter().sendMail(mailOptions);
+    });
     console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
