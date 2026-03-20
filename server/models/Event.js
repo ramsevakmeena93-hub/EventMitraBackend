@@ -8,7 +8,7 @@ const historySchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['student', 'faculty', 'hod', 'abc', 'superadmin'],
+    enum: ['student', 'faculty', 'hod', 'abc', 'superadmin', 'registrar'],
     required: true
   },
   userId: {
@@ -126,7 +126,7 @@ const eventSchema = new mongoose.Schema({
   
   currentApprover: {
     type: String,
-    enum: ['faculty', 'hod', 'abc', 'superadmin', 'student'],
+    enum: ['faculty', 'hod', 'abc', 'superadmin', 'student', null],
     default: 'faculty'
   },
   
