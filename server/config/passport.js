@@ -17,7 +17,11 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         let user = await User.findOne({ email: profile.emails[0].value });
 
         if (user) {
-          // User exists, update Google ID if not set
+          // Block inactive users
+          if (!user.isActive) {
+            return done(null, false, { message: 'Account is inactive' });
+          }
+          // Update Google ID if not set
           if (!user.googleId) {
             user.googleId = profile.id;
             await user.save();
@@ -25,16 +29,20 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return done(null, user);
         }
 
-        // Create new user
+        // Create new user (Google sign-up for new students)
+        const bcrypt = require('bcryptjs');
+        const randomPass = await bcrypt.hash(Math.random().toString(36).slice(-10), 10);
         user = new User({
           googleId: profile.id,
           name: profile.displayName,
           email: profile.emails[0].value,
-          password: Math.random().toString(36).slice(-8), // Random password (won't be used)
-          role: 'student', // Default role, can be changed later
+          password: randomPass,
+          role: 'student',
           isActive: true
         });
 
+        // Skip pre-save hook for password since we already hashed it
+        user.$locals = { skipPasswordHash: true };
         await user.save();
         done(null, user);
       } catch (error) {
