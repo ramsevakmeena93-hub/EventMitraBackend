@@ -12,15 +12,16 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: (process.env.CLIENT_URL || 'http://localhost:5173').trim(),
     methods: ['GET', 'POST'],
     credentials: true
   }
 });
 
 // Middleware
+const allowedOrigin = (process.env.CLIENT_URL || 'http://localhost:5173').trim()
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: allowedOrigin,
   credentials: true
 }));
 app.use(express.json());
