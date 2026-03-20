@@ -144,7 +144,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       );
 
       // Redirect to frontend with token
-      res.redirect(`${process.env.CLIENT_URL}/auth/google/callback?token=${token}`);
+      const clientUrl = (process.env.CLIENT_URL || 'http://localhost:5173').trim()
+      res.redirect(`${clientUrl}/auth/google/callback?token=${token}`);
     }
   );
 } else {
@@ -154,7 +155,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   });
 
   router.get('/google/callback', (req, res) => {
-    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5173'}/login?error=oauth_not_configured`);
+    const clientUrl = (process.env.CLIENT_URL || 'http://localhost:5173').trim()
+    res.redirect(`${clientUrl}/login?error=oauth_not_configured`);
   });
 }
 
