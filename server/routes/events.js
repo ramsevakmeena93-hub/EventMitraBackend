@@ -211,32 +211,30 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
     // Use faculty as the applicant
     const faculty = req.user;
 
-    // Check if venue is a Seminar Hall (needs HOD approval)
-    const isSeminarHall = venue.name && venue.name.includes('Seminar Hall');
-    
+    // All venues go through HOD if a HOD exists for the faculty's department
     let hod = null;
     let initialStatus = 'pending_abc'; // Default: go to ABC directly
     let currentApprover = 'abc';
-    
-    // Only get HOD if it's a Seminar Hall
-    if (isSeminarHall && venue.hodDepartment) {
-      hod = await User.findOne({ 
-        role: 'hod', 
-        department: venue.hodDepartment,
-        isActive: true 
-      });
 
-      if (!hod) {
-        console.log('[create-event] REJECTED: HOD not found for', venue.hodDepartment);
-        return res.status(404).json({ message: 'HOD not found for this seminar hall' });
-      }
-      
-      initialStatus = 'pending_hod'; // Seminar Halls go to HOD first
-      currentApprover = 'hod';
-      console.log('[create-event] Workflow: Faculty → HOD → ABC → Super Admin');
-    } else {
-      console.log('[create-event] Workflow: Faculty → ABC → Super Admin (HOD skipped)');
+    // Try to find HOD by venue's hodDepartment first, then faculty's department
+    const deptToSearch = venue.hodDepartment || faculty.department;
+    if (deptToSearch) {
+      hod = await User.findOne({
+        role: 'hod',
+        department: deptToSearch,
+        isActive: true
+      });
     }
+
+    if (hod) {
+      initialStatus = 'pending_hod';
+      currentApprover = 'hod';
+      console.log('[create-event] Workflow: Faculty → HOD (' + hod.name + ') → ABC → Super Admin');
+    } else {
+      console.log('[create-event] Workflow: Faculty → ABC → Super Admin (no HOD found for dept: ' + deptToSearch + ')');
+    }
+
+    const isSeminarHall = venue.name && venue.name.includes('Seminar Hall');
 
     // Get club if provided
     let club = null;
@@ -302,8 +300,8 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
       });
       console.log('[create-event] Email sent to faculty');
 
-      // Send email to HOD only if it's a Seminar Hall
-      if (isSeminarHall && hod) {
+      // Notify HOD if assigned, otherwise notify ABC directly
+      if (hod) {
         await sendEmail({
           to: hod.email,
           subject: 'New Event Approval Required',
@@ -315,8 +313,6 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
           })
         });
         console.log('[create-event] Email sent to HOD');
-
-        // Emit notification to HOD
         if (io) {
           emitNotification(io, hod._id.toString(), {
             type: 'new_event',
@@ -325,10 +321,9 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
           });
         }
       } else {
-        // For non-Seminar Halls, notify ABC directly
+        // No HOD found — notify ABC directly
         const abcUsers = await User.find({ role: 'abc', isActive: true });
         console.log(`[create-event] Notifying ${abcUsers.length} ABC users`);
-        
         for (const abc of abcUsers) {
           await sendEmail({
             to: abc.email,
@@ -340,7 +335,6 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
               reason
             })
           });
-
           if (io) {
             emitNotification(io, abc._id.toString(), {
               type: 'new_event',
@@ -361,8 +355,8 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
         const userIdsToNotify = [req.userId]; // Faculty
         if (hod) userIdsToNotify.push(hod._id);
         
-        // Add ABC users if not going to HOD first
-        if (!isSeminarHall) {
+        // If no HOD, ABC was notified directly
+        if (!hod) {
           const abcUsers = await User.find({ role: 'abc', isActive: true });
           abcUsers.forEach(abc => userIdsToNotify.push(abc._id));
         }
@@ -378,7 +372,7 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
     res.status(201).json({ 
       message: 'Event application submitted successfully!', 
       event,
-      workflow: isSeminarHall ? 'Seminar Hall - Goes to HOD first' : 'Non-Seminar Hall - Goes to ABC directly'
+      workflow: hod ? 'Goes to HOD first → ABC → Super Admin' : 'Goes to ABC directly → Super Admin'
     });
   } catch (error) {
     console.error('[create-event] CRITICAL ERROR:', error);
@@ -389,8 +383,6 @@ router.post('/create', auth, authorize('faculty'), upload.single('document'), as
     });
   }
 });
-
-module.exports = router;
 
 // Approve event
 router.post('/:id/approve', auth, async (req, res) => {
@@ -525,17 +517,26 @@ router.post('/:id/approve', auth, async (req, res) => {
         return res.json({ message: 'Event finally approved by ABC', event });
       }
 
-      // ABC forwards to Super Admin
-      if (!superAdminId) {
-        return res.status(400).json({ message: 'Super admin selection required' });
+      // ABC forwards to Super Admin(s)
+      const { superAdminIds } = req.body;
+
+      // Support both single superAdminId and array superAdminIds
+      const adminIds = superAdminIds && superAdminIds.length > 0
+        ? (Array.isArray(superAdminIds) ? superAdminIds : [superAdminIds])
+        : superAdminId ? [superAdminId] : [];
+
+      if (adminIds.length === 0) {
+        return res.status(400).json({ message: 'Please select at least one Super Admin to forward to' });
       }
 
-      const superAdmin = await User.findById(superAdminId);
-      if (!superAdmin || superAdmin.role !== 'superadmin') {
-        return res.status(404).json({ message: 'Super admin not found' });
+      // Validate all selected super admins
+      const superAdminDocs = await User.find({ _id: { $in: adminIds }, role: 'superadmin' });
+      if (superAdminDocs.length === 0) {
+        return res.status(404).json({ message: 'No valid Super Admins found' });
       }
 
-      event.superAdminId = superAdminId;
+      // Use first selected super admin as primary (for event.superAdminId field)
+      event.superAdminId = superAdminDocs[0]._id;
       event.abcId = req.userId;
       event.status = 'pending_superadmin';
       event.currentApprover = 'superadmin';
@@ -544,7 +545,7 @@ router.post('/:id/approve', auth, async (req, res) => {
         role: 'abc',
         userId: req.userId,
         userName: req.user.name,
-        reason: comment || 'Approved and forwarded to Super Admin',
+        reason: comment || `Approved and forwarded to ${superAdminDocs.length} Super Admin(s)`,
         timestamp: new Date()
       });
 
@@ -563,25 +564,28 @@ router.post('/:id/approve', auth, async (req, res) => {
           })
         });
 
-        await sendEmail({
-          to: superAdmin.email,
-          subject: 'New Event Approval Required',
-          html: emailTemplates.pendingApproval(superAdmin.name, 'Super Admin', event.studentId.name, {
-            venue: event.venueId.name,
-            date: event.date.toLocaleDateString(),
-            time: event.time,
-            reason: event.reason,
-            comment: comment || ''
-          })
-        });
+        // Notify all selected super admins
+        for (const sa of superAdminDocs) {
+          await sendEmail({
+            to: sa.email,
+            subject: 'New Event Approval Required',
+            html: emailTemplates.pendingApproval(sa.name, 'Super Admin', event.studentId.name, {
+              venue: event.venueId.name,
+              date: event.date.toLocaleDateString(),
+              time: event.time,
+              reason: event.reason,
+              comment: comment || ''
+            })
+          });
+        }
       } catch (emailError) {
         console.error('[approve] Email sending failed (non-critical):', emailError.message);
       }
 
       if (io) {
-        emitEventUpdate(io, [event.studentId._id, superAdminId], event);
+        emitEventUpdate(io, [event.studentId._id, ...adminIds], event);
       }
-      return res.json({ message: 'Event approved and forwarded to Super Admin', event });
+      return res.json({ message: `Event approved and forwarded to ${superAdminDocs.length} Super Admin(s)`, event });
     }
 
     // Super Admin final approval
@@ -702,7 +706,7 @@ router.get('/my-events', auth, async (req, res) => {
         query = { facultyId: req.userId };
         break;
       case 'hod':
-        query = { status: 'pending_hod' };
+        query = { hodId: req.userId };
         break;
       case 'abc':
         query = { status: 'pending_abc' };
@@ -765,7 +769,47 @@ router.get('/pending', auth, async (req, res) => {
   }
 });
 
-// Get event by ID
+// Get all events (for ABC/admins to view all college events)
+router.get('/all', auth, async (req, res) => {
+  try {
+    const events = await Event.find({})
+      .populate('studentId', 'name email branch enrollmentNo')
+      .populate('facultyId', 'name email department')
+      .populate('hodId', 'name email department')
+      .populate('abcId', 'name email')
+      .populate('superAdminId', 'name email')
+      .populate('venueId')
+      .populate('clubId', 'name')
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json(events);
+  } catch (error) {
+    console.error('[all-events] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get all approved upcoming/ongoing events (PROTECTED - requires login)
+router.get('/public/approved', auth, async (req, res) => {
+  try {
+    const events = await Event.find({
+      status: 'approved',
+      eventStatus: { $in: ['upcoming', 'ongoing'] }
+    })
+      .populate('studentId', 'name email branch enrollmentNo')
+      .populate('facultyId', 'name email department')
+      .populate('venueId')
+      .populate('clubId', 'name')
+      .sort({ date: 1, startTime: 1 })
+      .limit(50);
+    res.json(events);
+  } catch (error) {
+    console.error('[approved-events] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get event by ID  ← must stay AFTER all named routes
 router.get('/:id', auth, async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
@@ -1060,52 +1104,133 @@ router.post('/:id/mark-completed', auth, authorize('registrar'), async (req, res
   }
 });
 
-// Get all events (for students to view all college events)
-router.get('/all', auth, async (req, res) => {
+// ABC Create Event (ABC creates directly — no student/faculty needed, auto HOD assign)
+router.post('/abc-create', auth, authorize('abc'), async (req, res) => {
   try {
-    const events = await Event.find({})
-      .populate('studentId', 'name email branch enrollmentNo')
-      .populate('facultyId', 'name email department')
-      .populate('hodId', 'name email department')
-      .populate('abcId', 'name email')
-      .populate('superAdminId', 'name email')
-      .populate('venueId')
-      .populate('clubId', 'name')
-      .sort({ createdAt: -1 })
-      .limit(100);
-    
-    res.json(events);
-  } catch (error) {
-    console.error('[all-events] Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
+    const { venueId, date, startTime, endTime, reason, clubName } = req.body;
+    const io = req.app.get('io');
 
+    if (!venueId || !date || !startTime || !endTime || !reason) {
+      return res.status(400).json({ message: 'venueId, date, startTime, endTime, and reason are required' });
+    }
 
-// Get all approved upcoming/ongoing events (PUBLIC - visible to everyone)
-router.get('/public/approved', async (req, res) => {
-  try {
-    console.log('[public-approved] Fetching approved events...');
-    
-    const events = await Event.find({
-      status: 'approved',
-      eventStatus: { $in: ['upcoming', 'ongoing'] }
-    })
-      .populate('studentId', 'name email branch enrollmentNo')
-      .populate('facultyId', 'name email department')
-      .populate('venueId')
-      .populate('clubId', 'name')
-      .sort({ date: 1, startTime: 1 })
-      .limit(50);
+    // Validate time range
+    const [startHour] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    if (startHour < 8 || endHour > 18 || (endHour === 18 && endMin > 0)) {
+      return res.status(400).json({ message: 'Bookings are only allowed between 8:00 AM and 6:00 PM' });
+    }
 
-    console.log(`[public-approved] Found ${events.length} approved events`);
-    events.forEach(e => {
-      console.log(`  - ${e.reason} | status: ${e.status} | eventStatus: ${e.eventStatus} | date: ${e.date}`);
+    // Check venue availability
+    const bookingDate = new Date(date);
+    const existingEvents = await Event.find({
+      venueId,
+      date: bookingDate,
+      status: { $in: ['pending_hod', 'pending_abc', 'pending_superadmin', 'approved'] }
+    });
+    for (const ev of existingEvents) {
+      const es = ev.startTime, ee = ev.endTime;
+      if (es && ee) {
+        if ((startTime >= es && startTime < ee) || (endTime > es && endTime <= ee) || (startTime <= es && endTime >= ee)) {
+          return res.status(400).json({ message: 'Venue already booked for this time slot' });
+        }
+      }
+    }
+
+    const venue = await Venue.findById(venueId);
+    if (!venue) return res.status(404).json({ message: 'Venue not found' });
+
+    console.log(`[abc-create] Venue: "${venue.name}", hodDepartment: "${venue.hodDepartment}"`);
+
+    // Auto-assign HOD: primary by venue.hodDepartment, fallback for Seminar Hall
+    let hod = null;
+    const isSeminarHallABC = venue.name && /seminar hall/i.test(venue.name);
+    const deptToSearch = venue.hodDepartment || venue.department;
+
+    if (deptToSearch) {
+      hod = await User.findOne({
+        role: 'hod',
+        department: { $regex: new RegExp('^' + deptToSearch.trim() + '$', 'i') },
+        isActive: true
+      });
+      console.log('[abc-create] HOD search for dept ' + deptToSearch + ': ' + (hod ? hod.name : 'NOT FOUND'));
+    } else {
+      console.log('[abc-create] No hodDepartment on venue: ' + venue.name);
+    }
+
+    // Fallback: Seminar Hall always needs a HOD approval
+    if (!hod && isSeminarHallABC) {
+      hod = await User.findOne({ role: 'hod', isActive: true });
+      console.log('[abc-create] Seminar Hall fallback HOD: ' + (hod ? hod.name + ' (' + hod.department + ')' : 'NONE IN DB'));
+    }
+
+    if (!hod) console.log('[abc-create] No HOD found — event goes directly to ABC');
+
+    const formatTime = (t) => {
+      const [h, m] = t.split(':').map(Number);
+      const p = h >= 12 ? 'PM' : 'AM';
+      const dh = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      return `${dh}:${m.toString().padStart(2, '0')} ${p}`;
+    };
+    const timeDisplay = `${formatTime(startTime)} - ${formatTime(endTime)}`;
+
+    // Use ABC user as organizer (studentId + facultyId both set to ABC user)
+    const abcUser = await User.findById(req.userId);
+
+    const initialStatus = hod ? 'pending_hod' : 'pending_abc';
+    const currentApprover = hod ? 'hod' : 'abc';
+
+    const event = new Event({
+      studentId: req.userId,
+      studentName: abcUser.name,
+      branch: abcUser.department || 'ABC',
+      enrollmentNo: 'ABC-ADMIN',
+      facultyId: req.userId,
+      venueId,
+      hodId: hod ? hod._id : undefined,
+      date: bookingDate,
+      startTime,
+      endTime,
+      time: timeDisplay,
+      reason,
+      clubName: clubName || undefined,
+      status: initialStatus,
+      currentApprover,
+      eventStatus: 'upcoming',
+      history: [{
+        action: 'submitted',
+        role: 'abc',
+        userId: req.userId,
+        userName: abcUser.name,
+        reason: 'Event created directly by ABC Admin',
+        timestamp: new Date()
+      }]
     });
 
-    res.json(events);
+    await event.save();
+
+    // Notify HOD or ABC (self)
+    if (hod) {
+      try {
+        await sendEmail({
+          to: hod.email,
+          subject: 'New Event Approval Required (Created by ABC)',
+          html: emailTemplates.pendingApproval(hod.name, 'HOD', abcUser.name, {
+            venue: venue.name,
+            date: bookingDate.toLocaleDateString(),
+            time: timeDisplay,
+            reason
+          })
+        });
+        if (io) emitNotification(io, hod._id.toString(), { type: 'new_event', message: `New event created by ABC requires your approval`, eventId: event._id });
+      } catch (e) { console.error('Email error:', e.message); }
+    }
+
+    res.status(201).json({ message: 'Event created successfully by ABC', event, workflow: hod ? `HOD (${hod.name}) → ABC → Super Admin` : 'ABC → Super Admin' });
   } catch (error) {
-    console.error('[public-approved-events] Error:', error);
+    console.error('ABC create event error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
+
+module.exports = router;

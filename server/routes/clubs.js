@@ -47,7 +47,21 @@ router.post('/create', auth, authorize('abc'), async (req, res) => {
     });
 
     await club.save();
-    res.status(201).json({ message: 'Club created successfully', club });
+
+    // Auto-link faculty users whose email matches coordinator emails
+    const User = require('../models/User');
+    const coordinatorEmails = coordinators.map(c => c.email.toLowerCase());
+    const linkedFaculty = await User.updateMany(
+      { email: { $in: coordinatorEmails }, role: 'faculty' },
+      { $set: { clubId: club._id } }
+    );
+
+    console.log(`[create-club] Linked ${linkedFaculty.modifiedCount} faculty to club "${name}"`);
+
+    res.status(201).json({ 
+      message: `Club created successfully. ${linkedFaculty.modifiedCount} faculty linked.`, 
+      club 
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -72,7 +86,20 @@ router.put('/:id', auth, authorize('abc'), async (req, res) => {
     }
 
     if (name) club.name = name;
-    if (coordinators) club.coordinators = coordinators;
+    if (coordinators) {
+      club.coordinators = coordinators;
+      // Re-link faculty by email when coordinators are updated
+      const User = require('../models/User');
+      // Remove old links for this club
+      await User.updateMany({ clubId: club._id }, { $unset: { clubId: '' } });
+      // Add new links
+      const coordinatorEmails = coordinators.map(c => c.email.toLowerCase());
+      const linked = await User.updateMany(
+        { email: { $in: coordinatorEmails }, role: 'faculty' },
+        { $set: { clubId: club._id } }
+      );
+      console.log(`[update-club] Re-linked ${linked.modifiedCount} faculty to club "${club.name}"`);
+    }
     if (description !== undefined) club.description = description;
     if (isActive !== undefined) club.isActive = isActive;
 
