@@ -312,6 +312,11 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
 
     // Send emails via system Gmail (wrapped in try-catch to not block event creation)
     try {
+      // Build attachment if document exists
+      const attachments = req.file
+        ? [{ filename: req.file.originalname, path: path.join(uploadsDir, req.file.filename) }]
+        : [];
+
       // Confirmation email to faculty themselves
       await sendEmail({
         to: faculty.email,
@@ -335,9 +340,10 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
             date: bookingDate.toLocaleDateString(),
             time: timeDisplay,
             reason
-          })
+          }),
+          attachments
         });
-        console.log('[create-event] Email sent to HOD');
+        console.log('[create-event] Email sent to HOD with document');
         if (io) {
           emitNotification(io, hod._id.toString(), {
             type: 'new_event',
@@ -358,7 +364,8 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
               date: bookingDate.toLocaleDateString(),
               time: timeDisplay,
               reason
-            })
+            }),
+            attachments
           });
           if (io) {
             emitNotification(io, abc._id.toString(), {
@@ -368,7 +375,7 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
             });
           }
         }
-        console.log('[create-event] Email sent to ABC');
+        console.log('[create-event] Email sent to ABC with document');
       }
     } catch (emailError) {
       console.error('[create-event] Email sending failed (non-critical):', emailError.message);
@@ -424,6 +431,11 @@ router.post('/:id/approve', auth, async (req, res) => {
     const io = req.app.get('io');
     const userRole = req.user.role;
 
+    // Build attachment from event document if exists
+    const eventAttachments = (event.documentUrl && event.documentName)
+      ? [{ filename: event.documentName, path: path.join(uploadsDir, path.basename(event.documentUrl)) }]
+      : [];
+
     // HOD approval
     if (userRole === 'hod' && event.status === 'pending_hod') {
       const abc = await User.findOne({ role: 'abc', isActive: true });
@@ -454,8 +466,7 @@ router.post('/:id/approve', auth, async (req, res) => {
             date: event.date.toLocaleDateString(),
             time: event.time,
             status: 'Pending ABC Approval'
-          }),
-          ...actingEmailCreds
+          })
         });
 
         await sendEmail({
@@ -467,7 +478,7 @@ router.post('/:id/approve', auth, async (req, res) => {
             time: event.time,
             reason: event.reason
           }),
-          ...actingEmailCreds
+          attachments: eventAttachments
         });
       } catch (emailError) {
         console.error('[approve] Email sending failed (non-critical):', emailError.message);
@@ -510,8 +521,7 @@ router.post('/:id/approve', auth, async (req, res) => {
               time: event.time,
               status: 'APPROVED - Please collect key from Registrar Office',
               comment: comment || ''
-            }),
-            ...actingEmailCreds
+            })
           });
 
           const registrar = await User.findOne({ role: 'registrar', isActive: true });
@@ -530,8 +540,7 @@ router.post('/:id/approve', auth, async (req, res) => {
                   <li><strong>Time:</strong> ${event.time}</li>
                 </ul>
                 <p>Please prepare the key for collection.</p>
-              `,
-              ...actingEmailCreds
+              `
             });
           }
         } catch (emailError) {
@@ -585,8 +594,7 @@ router.post('/:id/approve', auth, async (req, res) => {
             time: event.time,
             status: 'Pending Super Admin Approval',
             comment: comment || ''
-          }),
-          ...actingEmailCreds
+          })
         });
 
         for (const sa of superAdminDocs) {
@@ -600,7 +608,7 @@ router.post('/:id/approve', auth, async (req, res) => {
               reason: event.reason,
               comment: comment || ''
             }),
-            ...actingEmailCreds
+            attachments: eventAttachments
           });
         }
       } catch (emailError) {
@@ -637,8 +645,7 @@ router.post('/:id/approve', auth, async (req, res) => {
             date: event.date.toLocaleDateString(),
             time: event.time,
             status: 'APPROVED - Please collect key from Registrar Office'
-          }),
-          ...actingEmailCreds
+          })
         });
       } catch (emailError) {
         console.error('[approve] Email sending failed (non-critical):', emailError.message);
@@ -697,8 +704,7 @@ router.post('/:id/reject', auth, async (req, res) => {
           venue: event.venueId.name,
           date: event.date.toLocaleDateString(),
           time: event.time
-        }),
-        ...actingEmailCreds
+        })
       });
     } catch (emailError) {
       console.error('[reject] Email sending failed (non-critical):', emailError.message);
@@ -1261,3 +1267,4 @@ router.post('/abc-create', auth, authorize('abc'), async (req, res) => {
 });
 
 module.exports = router;
+

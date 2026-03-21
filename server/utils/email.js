@@ -37,22 +37,17 @@ const getFacultyTransporter = (facultyEmail, appPassword) => {
 };
 
 /**
- * Send email — uses faculty's own Gmail if available, else system Gmail
- * @param {object} options - { to, subject, html, fromEmail, fromPassword, fromName }
+ * Send email — uses system Gmail
+ * @param {object} options - { to, subject, html, attachments }
+ * attachments: [{ filename, path }] — nodemailer format
  */
-const sendEmail = async ({ to, subject, html, fromEmail, fromPassword, fromName }) => {
+const sendEmail = async ({ to, subject, html, attachments }) => {
   let transporter;
   let senderAddress;
 
-  if (fromEmail && fromPassword) {
-    // Send from faculty's own Gmail
-    transporter = getFacultyTransporter(fromEmail, fromPassword);
-    senderAddress = `"${fromName || 'EventMitra'}" <${fromEmail}>`;
-    console.log(`[Email] Using faculty Gmail: ${fromEmail}`);
-  } else if (isEmailConfigured()) {
-    // Send from system Gmail
+  if (isEmailConfigured()) {
     transporter = getSystemTransporter();
-    senderAddress = `"EventMitra" <${process.env.EMAIL_USER}>`;
+    senderAddress = `"EventMitra MITS" <${process.env.EMAIL_USER}>`;
     console.log(`[Email] Using system Gmail: ${process.env.EMAIL_USER}`);
   } else {
     console.log(`[Email] SKIPPED (not configured) → To: ${to} | Subject: ${subject}`);
@@ -60,12 +55,11 @@ const sendEmail = async ({ to, subject, html, fromEmail, fromPassword, fromName 
   }
 
   try {
-    const info = await transporter.sendMail({
-      from: senderAddress,
-      to,
-      subject,
-      html
-    });
+    const mailOptions = { from: senderAddress, to, subject, html };
+    if (attachments && attachments.length > 0) {
+      mailOptions.attachments = attachments;
+    }
+    const info = await transporter.sendMail(mailOptions);
     console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (error) {
