@@ -30,11 +30,20 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /pdf|doc|docx|jpg|jpeg|png/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedExts = /\.(pdf|doc|docx|jpg|jpeg|png)$/i;
+  const allowedMimes = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'application/octet-stream' // fallback for some browsers
+  ];
+  const extOk = allowedExts.test(path.extname(file.originalname));
+  const mimeOk = allowedMimes.includes(file.mimetype);
   
-  if (extname && mimetype) {
+  if (extOk || mimeOk) {
     cb(null, true);
   } else {
     cb(new Error('Only PDF, DOC, DOCX, JPG, PNG files are allowed'));
@@ -131,7 +140,15 @@ router.post('/check-availability', auth, async (req, res) => {
 });
 
 // Create event (Faculty creates for themselves)
-router.post('/create', auth, authorize('faculty'), upload.single('document'), async (req, res) => {
+router.post('/create', auth, authorize('faculty'), (req, res, next) => {
+  upload.single('document')(req, res, (err) => {
+    if (err) {
+      console.error('[create-event] Multer error:', err.message);
+      return res.status(400).json({ message: err.message || 'File upload error' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     console.log('[create-event] Starting event creation...');
     console.log('[create-event] User:', req.user.name, '| Role:', req.user.role);
