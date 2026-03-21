@@ -310,13 +310,7 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
     await event.save();
     console.log('[create-event] Event saved to database:', event._id);
 
-    // Fetch faculty's Gmail App Password (select: false field)
-    const facultyWithPass = await User.findById(req.userId).select('+gmailAppPassword');
-    const facultyEmailCreds = facultyWithPass?.gmailAppPassword
-      ? { fromEmail: faculty.email, fromPassword: facultyWithPass.gmailAppPassword, fromName: faculty.name }
-      : {};
-
-    // Send emails (wrapped in try-catch to not block event creation)
+    // Send emails via system Gmail (wrapped in try-catch to not block event creation)
     try {
       // Confirmation email to faculty themselves
       await sendEmail({
@@ -327,12 +321,11 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
           date: bookingDate.toLocaleDateString(),
           time: timeDisplay,
           reason
-        }),
-        ...facultyEmailCreds
+        })
       });
       console.log('[create-event] Confirmation email sent to faculty');
 
-      // Notify HOD if assigned, otherwise notify ABC (Student Dean Welfare) directly
+      // Notify HOD if assigned, otherwise notify ABC directly
       if (hod) {
         await sendEmail({
           to: hod.email,
@@ -342,10 +335,9 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
             date: bookingDate.toLocaleDateString(),
             time: timeDisplay,
             reason
-          }),
-          ...facultyEmailCreds
+          })
         });
-        console.log('[create-event] Email sent to HOD from faculty Gmail');
+        console.log('[create-event] Email sent to HOD');
         if (io) {
           emitNotification(io, hod._id.toString(), {
             type: 'new_event',
@@ -354,9 +346,9 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
           });
         }
       } else {
-        // No HOD — notify ABC (Student Dean Welfare) directly from faculty's Gmail
+        // No HOD — notify ABC directly
         const abcUsers = await User.find({ role: 'abc', isActive: true });
-        console.log(`[create-event] Notifying ${abcUsers.length} ABC (Student Dean Welfare) users`);
+        console.log(`[create-event] Notifying ${abcUsers.length} ABC users`);
         for (const abc of abcUsers) {
           await sendEmail({
             to: abc.email,
@@ -366,8 +358,7 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
               date: bookingDate.toLocaleDateString(),
               time: timeDisplay,
               reason
-            }),
-            ...facultyEmailCreds
+            })
           });
           if (io) {
             emitNotification(io, abc._id.toString(), {
@@ -377,7 +368,7 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
             });
           }
         }
-        console.log('[create-event] Email sent to ABC from faculty Gmail');
+        console.log('[create-event] Email sent to ABC');
       }
     } catch (emailError) {
       console.error('[create-event] Email sending failed (non-critical):', emailError.message);
@@ -432,12 +423,6 @@ router.post('/:id/approve', auth, async (req, res) => {
 
     const io = req.app.get('io');
     const userRole = req.user.role;
-
-    // Fetch acting user's Gmail App Password
-    const actingUserWithPass = await User.findById(req.userId).select('+gmailAppPassword');
-    const actingEmailCreds = actingUserWithPass?.gmailAppPassword
-      ? { fromEmail: req.user.email, fromPassword: actingUserWithPass.gmailAppPassword, fromName: req.user.name }
-      : {};
 
     // HOD approval
     if (userRole === 'hod' && event.status === 'pending_hod') {
@@ -689,12 +674,6 @@ router.post('/:id/reject', auth, async (req, res) => {
     }
 
     const io = req.app.get('io');
-
-    // Fetch acting user's Gmail App Password
-    const actingUserWithPass = await User.findById(req.userId).select('+gmailAppPassword');
-    const actingEmailCreds = actingUserWithPass?.gmailAppPassword
-      ? { fromEmail: req.user.email, fromPassword: actingUserWithPass.gmailAppPassword, fromName: req.user.name }
-      : {};
 
     event.status = 'rejected';
     event.rejectionReason = reason;
