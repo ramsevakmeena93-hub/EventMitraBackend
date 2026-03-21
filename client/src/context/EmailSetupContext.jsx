@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+﻿import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Mail, X, Shield, AlertCircle } from 'lucide-react'
@@ -8,7 +8,6 @@ const EmailSetupContext = createContext()
 
 export const useEmailSetup = () => useContext(EmailSetupContext)
 
-// The global modal component
 const EmailSetupModal = ({ onClose, onSaved }) => {
   const { user } = useAuth()
   const [password, setPassword] = useState('')
@@ -18,8 +17,8 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
     if (!password.trim()) return toast.error('Please enter your Gmail App Password')
     setSaving(true)
     try {
-      const { data } = await axios.post('/api/users/save-gmail-password', { gmailAppPassword: password })
-      toast.success('Gmail connected successfully!')
+      await axios.post('/api/users/save-gmail-password', { gmailAppPassword: password })
+      toast.success('Gmail connected! Proceeding...')
       onSaved()
     } catch (error) {
       toast.error(error.response?.data?.message || 'Invalid App Password. Please check and try again.')
@@ -31,7 +30,6 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
-        {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center">
@@ -39,7 +37,7 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Connect Your Gmail</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Required to send & receive approval emails</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Required to send approval emails</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1">
@@ -47,22 +45,19 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
           </button>
         </div>
 
-        {/* Info */}
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 flex gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div className="text-sm text-amber-800 dark:text-amber-300">
             <p className="font-semibold mb-1">Why is this needed?</p>
-            <p>All approval emails (submit, approve, reject) are sent from your own Gmail account. This ensures emails come from a real person, not a no-reply address.</p>
+            <p>All approval emails are sent from your own Gmail. This ensures emails come from a real person.</p>
           </div>
         </div>
 
-        {/* Email display */}
         <div className="bg-gray-50 dark:bg-gray-700 rounded-lg px-4 py-3">
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Your Gmail account</p>
           <p className="font-medium text-gray-900 dark:text-white">{user?.email}</p>
         </div>
 
-        {/* Password input */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Gmail App Password <span className="text-red-500">*</span>
@@ -78,11 +73,10 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
           />
         </div>
 
-        {/* Instructions */}
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-4 text-xs text-blue-800 dark:text-blue-300">
           <p className="font-semibold text-sm mb-2">How to get Gmail App Password:</p>
           <ol className="list-decimal list-inside space-y-1">
-            <li>Go to <span className="font-medium">myaccount.google.com</span></li>
+            <li>Go to myaccount.google.com</li>
             <li>Security → 2-Step Verification → Turn ON</li>
             <li>Security → App passwords</li>
             <li>Select "Mail" → "Other" → type "EventMitra" → Generate</li>
@@ -90,7 +84,6 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
           </ol>
         </div>
 
-        {/* Buttons */}
         <div className="flex gap-3">
           <button onClick={onClose}
             className="flex-1 py-3 border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium transition-all text-sm">
@@ -99,7 +92,7 @@ const EmailSetupModal = ({ onClose, onSaved }) => {
           <button onClick={handleSave} disabled={saving}
             className="flex-1 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium transition-all flex items-center justify-center gap-2 text-sm">
             <Shield size={15} />
-            {saving ? 'Verifying...' : 'Save & Connect'}
+            {saving ? 'Verifying...' : 'Save & Continue'}
           </button>
         </div>
       </div>
@@ -111,56 +104,60 @@ export const EmailSetupProvider = ({ children }) => {
   const { user } = useAuth()
   const [hasEmailSetup, setHasEmailSetup] = useState(false)
   const [showModal, setShowModal] = useState(false)
-  const [pendingAction, setPendingAction] = useState(null) // callback to run after setup
+  // Use a ref so the pending action always has the latest value
+  const pendingActionRef = useRef(null)
 
-  // Check email status when user logs in
   useEffect(() => {
     if (user) {
       checkEmailStatus()
     } else {
       setHasEmailSetup(false)
+      setShowModal(false)
     }
   }, [user])
 
   const checkEmailStatus = async () => {
     try {
       const { data } = await axios.get('/api/users/email-status')
-      setHasEmailSetup(data.hasEmailSetup)
-      // Show modal on login if not set up (after short delay)
+      setHasEmailSetup(!!data.hasEmailSetup)
+      // Show modal 1.5s after login if not set up
       if (!data.hasEmailSetup) {
         setTimeout(() => setShowModal(true), 1500)
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[EmailSetup] Could not check email status:', e.message)
+      // Default to false — will show popup on action
+      setHasEmailSetup(false)
+    }
   }
 
-  // Call this before any action — if not set up, show modal and queue the action
-  const requireEmailSetup = useCallback((action) => {
+  // requireEmailSetup: call this before any action
+  // If email is set up → run action immediately
+  // If not → show modal, run action after setup
+  const requireEmailSetup = (action) => {
     if (hasEmailSetup) {
-      // Already set up — run action immediately
-      if (action) action()
-      return true
+      action()
+      return
     }
-    // Not set up — show modal, queue action for after setup
-    setPendingAction(() => action)
+    // Store action in ref so it survives re-renders
+    pendingActionRef.current = action
     setShowModal(true)
-    return false
-  }, [hasEmailSetup])
+  }
 
   const handleSaved = () => {
     setHasEmailSetup(true)
     setShowModal(false)
-    // Run the pending action if any
-    if (pendingAction) {
-      setTimeout(() => {
-        pendingAction()
-        setPendingAction(null)
-      }, 300)
+    // Run the pending action after a short delay
+    if (pendingActionRef.current) {
+      const action = pendingActionRef.current
+      pendingActionRef.current = null
+      setTimeout(() => action(), 300)
     }
   }
 
   const handleClose = () => {
     setShowModal(false)
-    setPendingAction(null)
+    pendingActionRef.current = null
   }
 
   return (
