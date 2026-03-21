@@ -310,101 +310,94 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
     await event.save();
     console.log('[create-event] Event saved to database:', event._id);
 
-    // Send emails via system Gmail (wrapped in try-catch to not block event creation)
-    try {
-      // Build attachment if document exists
-      const attachments = req.file
-        ? [{ filename: req.file.originalname, path: path.join(uploadsDir, req.file.filename) }]
-        : [];
+    // Respond immediately — emails sent in background
+    res.status(201).json({ 
+      message: 'Event application submitted successfully!', 
+      event,
+      workflow: hod ? 'Goes to HOD first → ABC → Super Admin' : 'Goes to ABC directly → Super Admin'
+    });
 
-      // Confirmation email to faculty themselves
-      await sendEmail({
-        to: faculty.email,
-        subject: 'Event Application Submitted - EventMitra',
-        html: emailTemplates.eventSubmitted(faculty.name, {
-          venue: venue.name,
-          date: bookingDate.toLocaleDateString(),
-          time: timeDisplay,
-          reason
-        })
-      });
-      console.log('[create-event] Confirmation email sent to faculty');
+    // Send emails in background (non-blocking)
+    setImmediate(async () => {
+      try {
+        const attachments = req.file
+          ? [{ filename: req.file.originalname, path: path.join(uploadsDir, req.file.filename) }]
+          : [];
 
-      // Notify HOD if assigned, otherwise notify ABC directly
-      if (hod) {
-        await sendEmail({
-          to: hod.email,
-          subject: `New Event Approval Required from ${faculty.name}`,
-          html: emailTemplates.pendingApproval(hod.name, 'HOD', faculty.name, {
+        // Confirmation email to faculty
+        sendEmail({
+          to: faculty.email,
+          subject: 'Event Application Submitted - EventMitra',
+          html: emailTemplates.eventSubmitted(faculty.name, {
             venue: venue.name,
             date: bookingDate.toLocaleDateString(),
             time: timeDisplay,
             reason
-          }),
-          attachments
-        });
-        console.log('[create-event] Email sent to HOD with document');
-        if (io) {
-          emitNotification(io, hod._id.toString(), {
-            type: 'new_event',
-            message: `New event approval required from ${faculty.name}`,
-            eventId: event._id
-          });
-        }
-      } else {
-        // No HOD — notify ABC directly
-        const abcUsers = await User.find({ role: 'abc', isActive: true });
-        console.log(`[create-event] Notifying ${abcUsers.length} ABC users`);
-        for (const abc of abcUsers) {
-          await sendEmail({
-            to: abc.email,
+          })
+        }).then(() => console.log('[create-event] Confirmation email sent to faculty'))
+          .catch(e => console.error('[create-event] Faculty email failed:', e.message));
+
+        if (hod) {
+          sendEmail({
+            to: hod.email,
             subject: `New Event Approval Required from ${faculty.name}`,
-            html: emailTemplates.pendingApproval(abc.name, 'Student Dean Welfare', faculty.name, {
+            html: emailTemplates.pendingApproval(hod.name, 'HOD', faculty.name, {
               venue: venue.name,
               date: bookingDate.toLocaleDateString(),
               time: timeDisplay,
               reason
             }),
             attachments
-          });
+          }).then(() => console.log('[create-event] Email sent to HOD'))
+            .catch(e => console.error('[create-event] HOD email failed:', e.message));
+
           if (io) {
-            emitNotification(io, abc._id.toString(), {
+            emitNotification(io, hod._id.toString(), {
               type: 'new_event',
               message: `New event approval required from ${faculty.name}`,
               eventId: event._id
             });
           }
-        }
-        console.log('[create-event] Email sent to ABC with document');
-      }
-    } catch (emailError) {
-      console.error('[create-event] Email sending failed (non-critical):', emailError.message);
-    }
-
-    // Emit socket update (fixed - collect all relevant user IDs)
-    try {
-      if (io) {
-        const userIdsToNotify = [req.userId]; // Faculty
-        if (hod) userIdsToNotify.push(hod._id);
-        
-        // If no HOD, ABC was notified directly
-        if (!hod) {
+        } else {
           const abcUsers = await User.find({ role: 'abc', isActive: true });
-          abcUsers.forEach(abc => userIdsToNotify.push(abc._id));
-        }
-        
-        emitEventUpdate(io, userIdsToNotify, event);
-        console.log('[create-event] Socket notifications sent to', userIdsToNotify.length, 'users');
-      }
-    } catch (socketError) {
-      console.error('[create-event] Socket notification failed (non-critical):', socketError.message);
-    }
+          for (const abc of abcUsers) {
+            sendEmail({
+              to: abc.email,
+              subject: `New Event Approval Required from ${faculty.name}`,
+              html: emailTemplates.pendingApproval(abc.name, 'Student Dean Welfare', faculty.name, {
+                venue: venue.name,
+                date: bookingDate.toLocaleDateString(),
+                time: timeDisplay,
+                reason
+              }),
+              attachments
+            }).then(() => console.log('[create-event] Email sent to ABC:', abc.email))
+              .catch(e => console.error('[create-event] ABC email failed:', e.message));
 
-    console.log('[create-event] SUCCESS - Event created:', event._id);
-    res.status(201).json({ 
-      message: 'Event application submitted successfully!', 
-      event,
-      workflow: hod ? 'Goes to HOD first → ABC → Super Admin' : 'Goes to ABC directly → Super Admin'
+            if (io) {
+              emitNotification(io, abc._id.toString(), {
+                type: 'new_event',
+                message: `New event approval required from ${faculty.name}`,
+                eventId: event._id
+              });
+            }
+          }
+        }
+
+        // Socket update
+        if (io) {
+          const userIdsToNotify = [req.userId];
+          if (hod) {
+            userIdsToNotify.push(hod._id);
+          } else {
+            const abcUsers = await User.find({ role: 'abc', isActive: true });
+            abcUsers.forEach(abc => userIdsToNotify.push(abc._id));
+          }
+          emitEventUpdate(io, userIdsToNotify, event);
+        }
+      } catch (bgError) {
+        console.error('[create-event] Background task error:', bgError.message);
+      }
     });
   } catch (error) {
     console.error('[create-event] CRITICAL ERROR:', error);
@@ -457,8 +450,12 @@ router.post('/:id/approve', auth, async (req, res) => {
 
       await event.save();
 
-      try {
-        await sendEmail({
+      if (io) emitEventUpdate(io, [event.studentId._id, abc._id], event);
+      res.json({ message: 'Event approved and forwarded to ABC', event });
+
+      // Send emails in background
+      setImmediate(() => {
+        sendEmail({
           to: event.studentId.email,
           subject: 'Event Approved by HOD',
           html: emailTemplates.eventApproved(event.studentId.name, 'HOD', {
@@ -467,9 +464,9 @@ router.post('/:id/approve', auth, async (req, res) => {
             time: event.time,
             status: 'Pending ABC Approval'
           })
-        });
+        }).catch(e => console.error('[approve-hod] Faculty email failed:', e.message));
 
-        await sendEmail({
+        sendEmail({
           to: abc.email,
           subject: 'New Event Approval Required',
           html: emailTemplates.pendingApproval(abc.name, 'ABC', event.studentId.name, {
@@ -479,15 +476,9 @@ router.post('/:id/approve', auth, async (req, res) => {
             reason: event.reason
           }),
           attachments: eventAttachments
-        });
-      } catch (emailError) {
-        console.error('[approve] Email sending failed (non-critical):', emailError.message);
-      }
-
-      if (io) {
-        emitEventUpdate(io, [event.studentId._id, abc._id], event);
-      }
-      return res.json({ message: 'Event approved and forwarded to ABC', event });
+        }).catch(e => console.error('[approve-hod] ABC email failed:', e.message));
+      });
+      return;
     }
 
     // ABC approval (with super admin selection OR final approval)
@@ -511,8 +502,12 @@ router.post('/:id/approve', auth, async (req, res) => {
 
         await event.save();
 
-        try {
-          await sendEmail({
+        if (io) emitEventUpdate(io, [event.studentId._id, event.facultyId, event.hodId], event);
+        res.json({ message: 'Event finally approved by ABC', event });
+
+        // Send emails in background
+        setImmediate(async () => {
+          sendEmail({
             to: event.studentId.email,
             subject: 'Event Finally Approved by ABC - Collect Key',
             html: emailTemplates.eventApproved(event.studentId.name, 'ABC (Final Authority)', {
@@ -522,35 +517,31 @@ router.post('/:id/approve', auth, async (req, res) => {
               status: 'APPROVED - Please collect key from Registrar Office',
               comment: comment || ''
             })
-          });
+          }).catch(e => console.error('[approve-abc-final] Faculty email failed:', e.message));
 
-          const registrar = await User.findOne({ role: 'registrar', isActive: true });
-          if (registrar) {
-            await sendEmail({
-              to: registrar.email,
-              subject: 'New Key Collection Pending',
-              html: `
-                <h2>Key Collection Required</h2>
-                <p>Dear ${registrar.name},</p>
-                <p>A new event has been approved and requires key collection:</p>
-                <ul>
-                  <li><strong>Student:</strong> ${event.studentId.name}</li>
-                  <li><strong>Venue:</strong> ${event.venueId.name}</li>
-                  <li><strong>Date:</strong> ${event.date.toLocaleDateString()}</li>
-                  <li><strong>Time:</strong> ${event.time}</li>
-                </ul>
-                <p>Please prepare the key for collection.</p>
-              `
-            });
-          }
-        } catch (emailError) {
-          console.error('[approve] Email sending failed (non-critical):', emailError.message);
-        }
-
-        if (io) {
-          emitEventUpdate(io, [event.studentId._id, event.facultyId, event.hodId], event);
-        }
-        return res.json({ message: 'Event finally approved by ABC', event });
+          try {
+            const registrar = await User.findOne({ role: 'registrar', isActive: true });
+            if (registrar) {
+              sendEmail({
+                to: registrar.email,
+                subject: 'New Key Collection Pending',
+                html: `
+                  <h2>Key Collection Required</h2>
+                  <p>Dear ${registrar.name},</p>
+                  <p>A new event has been approved and requires key collection:</p>
+                  <ul>
+                    <li><strong>Student:</strong> ${event.studentId.name}</li>
+                    <li><strong>Venue:</strong> ${event.venueId.name}</li>
+                    <li><strong>Date:</strong> ${event.date.toLocaleDateString()}</li>
+                    <li><strong>Time:</strong> ${event.time}</li>
+                  </ul>
+                  <p>Please prepare the key for collection.</p>
+                `
+              }).catch(e => console.error('[approve-abc-final] Registrar email failed:', e.message));
+            }
+          } catch (e) { console.error('[approve-abc-final] BG error:', e.message); }
+        });
+        return;
       }
 
       // ABC forwards to Super Admin(s)
@@ -584,8 +575,12 @@ router.post('/:id/approve', auth, async (req, res) => {
 
       await event.save();
 
-      try {
-        await sendEmail({
+      if (io) emitEventUpdate(io, [event.studentId._id, ...adminIds], event);
+      res.json({ message: `Event approved and forwarded to ${superAdminDocs.length} Super Admin(s)`, event });
+
+      // Send emails in background
+      setImmediate(() => {
+        sendEmail({
           to: event.studentId.email,
           subject: 'Event Approved by ABC',
           html: emailTemplates.eventApproved(event.studentId.name, 'ABC', {
@@ -595,10 +590,10 @@ router.post('/:id/approve', auth, async (req, res) => {
             status: 'Pending Super Admin Approval',
             comment: comment || ''
           })
-        });
+        }).catch(e => console.error('[approve-abc] Faculty email failed:', e.message));
 
         for (const sa of superAdminDocs) {
-          await sendEmail({
+          sendEmail({
             to: sa.email,
             subject: 'New Event Approval Required',
             html: emailTemplates.pendingApproval(sa.name, 'Super Admin', event.studentId.name, {
@@ -609,16 +604,10 @@ router.post('/:id/approve', auth, async (req, res) => {
               comment: comment || ''
             }),
             attachments: eventAttachments
-          });
+          }).catch(e => console.error('[approve-abc] SuperAdmin email failed:', e.message));
         }
-      } catch (emailError) {
-        console.error('[approve] Email sending failed (non-critical):', emailError.message);
-      }
-
-      if (io) {
-        emitEventUpdate(io, [event.studentId._id, ...adminIds], event);
-      }
-      return res.json({ message: `Event approved and forwarded to ${superAdminDocs.length} Super Admin(s)`, event });
+      });
+      return;
     }
 
     // Super Admin final approval
@@ -636,8 +625,12 @@ router.post('/:id/approve', auth, async (req, res) => {
 
       await event.save();
 
-      try {
-        await sendEmail({
+      if (io) emitEventUpdate(io, [event.studentId._id, event.facultyId, event.hodId, event.abcId], event);
+      res.json({ message: 'Event finally approved', event });
+
+      // Send email in background
+      setImmediate(() => {
+        sendEmail({
           to: event.studentId.email,
           subject: 'Event Finally Approved - Collect Key from Registrar',
           html: emailTemplates.eventApproved(event.studentId.name, 'Super Admin', {
@@ -646,15 +639,9 @@ router.post('/:id/approve', auth, async (req, res) => {
             time: event.time,
             status: 'APPROVED - Please collect key from Registrar Office'
           })
-        });
-      } catch (emailError) {
-        console.error('[approve] Email sending failed (non-critical):', emailError.message);
-      }
-
-      if (io) {
-        emitEventUpdate(io, [event.studentId._id, event.facultyId, event.hodId, event.abcId], event);
-      }
-      return res.json({ message: 'Event finally approved', event });
+        }).catch(e => console.error('[approve-superadmin] Email failed:', e.message));
+      });
+      return;
     }
 
     res.status(403).json({ message: 'Not authorized to approve at this stage' });
@@ -696,20 +683,6 @@ router.post('/:id/reject', auth, async (req, res) => {
 
     await event.save();
 
-    try {
-      await sendEmail({
-        to: event.studentId.email,
-        subject: 'Event Application Rejected',
-        html: emailTemplates.eventRejected(event.studentId.name, req.user.role.toUpperCase(), reason, {
-          venue: event.venueId.name,
-          date: event.date.toLocaleDateString(),
-          time: event.time
-        })
-      });
-    } catch (emailError) {
-      console.error('[reject] Email sending failed (non-critical):', emailError.message);
-    }
-
     if (io) {
       emitNotification(io, event.studentId._id, {
         type: 'event_rejected',
@@ -720,6 +693,19 @@ router.post('/:id/reject', auth, async (req, res) => {
     }
 
     res.json({ message: 'Event rejected', event });
+
+    // Send email in background
+    setImmediate(() => {
+      sendEmail({
+        to: event.studentId.email,
+        subject: 'Event Application Rejected',
+        html: emailTemplates.eventRejected(event.studentId.name, req.user.role.toUpperCase(), reason, {
+          venue: event.venueId.name,
+          date: event.date.toLocaleDateString(),
+          time: event.time
+        })
+      }).catch(e => console.error('[reject] Email failed:', e.message));
+    });
   } catch (error) {
     console.error('[reject] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
