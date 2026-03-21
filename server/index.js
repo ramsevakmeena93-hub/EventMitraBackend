@@ -82,6 +82,19 @@ app.use('/api/calendar', require('./routes/calendar'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/feedback', require('./routes/feedback'));
 
+// Test email endpoint
+app.get('/api/test-email', async (req, res) => {
+  const { sendEmail } = require('./utils/email');
+  const to = req.query.to;
+  if (!to) return res.status(400).json({ message: 'Pass ?to=youremail@gmail.com' });
+  const result = await sendEmail({
+    to,
+    subject: 'EventMitra Test Email',
+    html: '<h2>✅ Email is working!</h2><p>This is a test from EventMitra system.</p>'
+  });
+  res.json(result);
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running', version: '2.0' });
