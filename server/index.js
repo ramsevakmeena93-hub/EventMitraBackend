@@ -82,6 +82,18 @@ app.use('/api/calendar', require('./routes/calendar'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/feedback', require('./routes/feedback'));
 
+// One-time fix endpoint for ABC user
+app.get('/api/fix-abc', async (req, res) => {
+  const User = require('./models/User');
+  const abcUsers = await User.find({ role: 'abc' });
+  const result = await User.findOneAndUpdate(
+    { role: 'abc' },
+    { email: 'abhishekdixit@mitsgwalior.in', isActive: true },
+    { new: true }
+  );
+  res.json({ before: abcUsers.map(u => ({ email: u.email, isActive: u.isActive })), after: result ? { email: result.email, isActive: result.isActive } : null });
+});
+
 // Test email endpoint
 app.get('/api/test-email', async (req, res) => {
   const { sendEmail } = require('./utils/email');
