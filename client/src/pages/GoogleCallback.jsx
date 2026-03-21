@@ -1,25 +1,28 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
 const GoogleCallback = () => {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { fetchUser } = useAuth()
+  const handled = useRef(false)
 
   useEffect(() => {
+    if (handled.current) return
+    handled.current = true
+
     const handleCallback = async () => {
       const token = searchParams.get('token')
 
       if (token) {
         try {
-          // Store token
           localStorage.setItem('token', token)
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-
-          // Fetch user data
-          const { data } = await axios.get('/api/auth/me')
-          
+          // fetchUser updates AuthContext.user — triggers EmailSetupContext check
+          await fetchUser()
           toast.success('Signed in with Google successfully!')
           navigate('/dashboard')
         } catch (error) {
@@ -34,7 +37,7 @@ const GoogleCallback = () => {
     }
 
     handleCallback()
-  }, [searchParams, navigate])
+  }, [])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">

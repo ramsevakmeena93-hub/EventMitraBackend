@@ -8,6 +8,9 @@ const EmailSetupContext = createContext()
 
 export const useEmailSetup = () => useContext(EmailSetupContext)
 
+// Roles that need Gmail setup to send emails
+const ROLES_NEEDING_EMAIL = ['faculty', 'hod', 'abc', 'superadmin', 'registrar']
+
 const EmailSetupModal = ({ onClose, onSaved }) => {
   const { user } = useAuth()
   const [password, setPassword] = useState('')
@@ -104,42 +107,50 @@ export const EmailSetupProvider = ({ children }) => {
   const { user } = useAuth()
   const [hasEmailSetup, setHasEmailSetup] = useState(false)
   const [showModal, setShowModal] = useState(false)
-  // Use a ref so the pending action always has the latest value
   const pendingActionRef = useRef(null)
+  // Track which userId we last checked so we don't re-check on unrelated re-renders
+  const checkedUserIdRef = useRef(null)
 
   useEffect(() => {
-    if (user) {
-      checkEmailStatus()
-    } else {
+    if (user && user._id) {
+      // Only check if this is a new user login (different user or first load)
+      if (checkedUserIdRef.current !== user._id) {
+        checkedUserIdRef.current = user._id
+        // Only show popup for roles that send emails
+        if (ROLES_NEEDING_EMAIL.includes(user.role)) {
+          checkEmailStatus()
+        } else {
+          // Students etc. — mark as "set up" so requireEmailSetup passes through
+          setHasEmailSetup(true)
+        }
+      }
+    } else if (!user) {
       setHasEmailSetup(false)
       setShowModal(false)
+      checkedUserIdRef.current = null
     }
   }, [user])
 
   const checkEmailStatus = async () => {
     try {
       const { data } = await axios.get('/api/users/email-status')
+      console.log('[EmailSetup] Status:', data)
       setHasEmailSetup(!!data.hasEmailSetup)
-      // Show modal 1.5s after login if not set up
       if (!data.hasEmailSetup) {
+        // Show popup 1.5s after login
         setTimeout(() => setShowModal(true), 1500)
       }
     } catch (e) {
       console.warn('[EmailSetup] Could not check email status:', e.message)
-      // Default to false — will show popup on action
       setHasEmailSetup(false)
     }
   }
 
-  // requireEmailSetup: call this before any action
-  // If email is set up → run action immediately
-  // If not → show modal, run action after setup
   const requireEmailSetup = (action) => {
     if (hasEmailSetup) {
       action()
       return
     }
-    // Store action in ref so it survives re-renders
     pendingActionRef.current = action
     setShowModal(true)
   }
@@ -147,7 +158,6 @@ export const EmailSetupProvider = ({ children }) => {
   const handleSaved = () => {
     setHasEmailSetup(true)
     setShowModal(false)
-    // Run the pending action after a short delay
     if (pendingActionRef.current) {
       const action = pendingActionRef.current
       pendingActionRef.current = null
@@ -163,7 +173,7 @@ export const EmailSetupProvider = ({ children }) => {
   return (
     <EmailSetupContext.Provider value={{ hasEmailSetup, requireEmailSetup, showEmailSetup: () => setShowModal(true) }}>
       {children}
-      {showModal && user && (
+      {showModal && user && ROLES_NEEDING_EMAIL.includes(user.role) && (
         <EmailSetupModal onClose={handleClose} onSaved={handleSaved} />
       )}
     </EmailSetupContext.Provider>
