@@ -416,6 +416,12 @@ router.post('/:id/approve', auth, async (req, res) => {
     const io = req.app.get('io');
     const userRole = req.user.role;
 
+    // Fetch acting user's Gmail App Password
+    const actingUserWithPass = await User.findById(req.userId).select('+gmailAppPassword');
+    const actingEmailCreds = actingUserWithPass?.gmailAppPassword
+      ? { fromEmail: req.user.email, fromPassword: actingUserWithPass.gmailAppPassword, fromName: req.user.name }
+      : {};
+
     // HOD approval
     if (userRole === 'hod' && event.status === 'pending_hod') {
       const abc = await User.findOne({ role: 'abc', isActive: true });
@@ -446,7 +452,8 @@ router.post('/:id/approve', auth, async (req, res) => {
             date: event.date.toLocaleDateString(),
             time: event.time,
             status: 'Pending ABC Approval'
-          })
+          }),
+          ...actingEmailCreds
         });
 
         await sendEmail({
@@ -457,7 +464,8 @@ router.post('/:id/approve', auth, async (req, res) => {
             date: event.date.toLocaleDateString(),
             time: event.time,
             reason: event.reason
-          })
+          }),
+          ...actingEmailCreds
         });
       } catch (emailError) {
         console.error('[approve] Email sending failed (non-critical):', emailError.message);
@@ -491,7 +499,6 @@ router.post('/:id/approve', auth, async (req, res) => {
         await event.save();
 
         try {
-          // Notify student
           await sendEmail({
             to: event.studentId.email,
             subject: 'Event Finally Approved by ABC - Collect Key',
@@ -501,10 +508,10 @@ router.post('/:id/approve', auth, async (req, res) => {
               time: event.time,
               status: 'APPROVED - Please collect key from Registrar Office',
               comment: comment || ''
-            })
+            }),
+            ...actingEmailCreds
           });
 
-          // Notify Registrar
           const registrar = await User.findOne({ role: 'registrar', isActive: true });
           if (registrar) {
             await sendEmail({
@@ -521,7 +528,8 @@ router.post('/:id/approve', auth, async (req, res) => {
                   <li><strong>Time:</strong> ${event.time}</li>
                 </ul>
                 <p>Please prepare the key for collection.</p>
-              `
+              `,
+              ...actingEmailCreds
             });
           }
         } catch (emailError) {
@@ -537,7 +545,6 @@ router.post('/:id/approve', auth, async (req, res) => {
       // ABC forwards to Super Admin(s)
       const { superAdminIds } = req.body;
 
-      // Support both single superAdminId and array superAdminIds
       const adminIds = superAdminIds && superAdminIds.length > 0
         ? (Array.isArray(superAdminIds) ? superAdminIds : [superAdminIds])
         : superAdminId ? [superAdminId] : [];
@@ -546,13 +553,11 @@ router.post('/:id/approve', auth, async (req, res) => {
         return res.status(400).json({ message: 'Please select at least one Super Admin to forward to' });
       }
 
-      // Validate all selected super admins
       const superAdminDocs = await User.find({ _id: { $in: adminIds }, role: 'superadmin' });
       if (superAdminDocs.length === 0) {
         return res.status(404).json({ message: 'No valid Super Admins found' });
       }
 
-      // Use first selected super admin as primary (for event.superAdminId field)
       event.superAdminId = superAdminDocs[0]._id;
       event.abcId = req.userId;
       event.status = 'pending_superadmin';
@@ -578,10 +583,10 @@ router.post('/:id/approve', auth, async (req, res) => {
             time: event.time,
             status: 'Pending Super Admin Approval',
             comment: comment || ''
-          })
+          }),
+          ...actingEmailCreds
         });
 
-        // Notify all selected super admins
         for (const sa of superAdminDocs) {
           await sendEmail({
             to: sa.email,
@@ -592,7 +597,8 @@ router.post('/:id/approve', auth, async (req, res) => {
               time: event.time,
               reason: event.reason,
               comment: comment || ''
-            })
+            }),
+            ...actingEmailCreds
           });
         }
       } catch (emailError) {
@@ -629,7 +635,8 @@ router.post('/:id/approve', auth, async (req, res) => {
             date: event.date.toLocaleDateString(),
             time: event.time,
             status: 'APPROVED - Please collect key from Registrar Office'
-          })
+          }),
+          ...actingEmailCreds
         });
       } catch (emailError) {
         console.error('[approve] Email sending failed (non-critical):', emailError.message);
@@ -666,6 +673,12 @@ router.post('/:id/reject', auth, async (req, res) => {
 
     const io = req.app.get('io');
 
+    // Fetch acting user's Gmail App Password
+    const actingUserWithPass = await User.findById(req.userId).select('+gmailAppPassword');
+    const actingEmailCreds = actingUserWithPass?.gmailAppPassword
+      ? { fromEmail: req.user.email, fromPassword: actingUserWithPass.gmailAppPassword, fromName: req.user.name }
+      : {};
+
     event.status = 'rejected';
     event.rejectionReason = reason;
     event.currentApprover = null;
@@ -688,7 +701,8 @@ router.post('/:id/reject', auth, async (req, res) => {
           venue: event.venueId.name,
           date: event.date.toLocaleDateString(),
           time: event.time
-        })
+        }),
+        ...actingEmailCreds
       });
     } catch (emailError) {
       console.error('[reject] Email sending failed (non-critical):', emailError.message);
