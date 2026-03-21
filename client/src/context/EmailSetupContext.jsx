@@ -137,12 +137,13 @@ export const EmailSetupProvider = ({ children }) => {
       console.log('[EmailSetup] Status:', data)
       setHasEmailSetup(!!data.hasEmailSetup)
       if (!data.hasEmailSetup) {
-        // Show popup 1.5s after login
         setTimeout(() => setShowModal(true), 1500)
       }
     } catch (e) {
       console.warn('[EmailSetup] Could not check email status:', e.message)
+      // API failed — assume not set up, show popup anyway
       setHasEmailSetup(false)
+      setTimeout(() => setShowModal(true), 1500)
     }
   }
 
