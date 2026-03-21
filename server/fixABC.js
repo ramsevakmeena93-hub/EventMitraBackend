@@ -6,32 +6,22 @@ async function fixABC() {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('Connected to MongoDB');
 
-  // Show all abc users
+  // Show all abc users before
   const abcUsers = await User.find({ role: 'abc' });
-  console.log('All ABC users:');
+  console.log('ABC users found:', abcUsers.length);
   abcUsers.forEach(u => console.log(`  id: ${u._id} | email: ${u.email} | isActive: ${u.isActive}`));
 
-  // Fix: update the abc@test.com user — set real email and activate
+  // Just update the email field on the existing ABC user (keep everything else)
   const result = await User.findOneAndUpdate(
-    { role: 'abc', email: 'abc@test.com' },
+    { role: 'abc' },
     { email: 'abhishekdixit@mitsgwalior.in', isActive: true },
     { new: true }
   );
 
   if (result) {
-    console.log('\n✅ Updated ABC user:', result.email, '| isActive:', result.isActive);
+    console.log('\n✅ ABC user email updated to:', result.email, '| isActive:', result.isActive);
   } else {
-    // Maybe email is already set, just activate
-    const activated = await User.findOneAndUpdate(
-      { role: 'abc' },
-      { isActive: true },
-      { new: true }
-    );
-    if (activated) {
-      console.log('\n✅ Activated ABC user:', activated.email);
-    } else {
-      console.log('\n❌ No ABC user found at all');
-    }
+    console.log('\n❌ No ABC user found');
   }
 
   await mongoose.disconnect();
