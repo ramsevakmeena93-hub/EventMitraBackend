@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useAuth } from './context/AuthContext'
+import { EmailSetupProvider } from './context/EmailSetupContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import Home from './pages/Home'
@@ -19,6 +20,7 @@ function App() {
 
   return (
     <Router>
+      <EmailSetupProvider>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors flex flex-col">
         <Navbar />
         <Toaster position="top-right" />
@@ -58,6 +60,7 @@ function App() {
         </main>
         <Footer />
       </div>
+      </EmailSetupProvider>
     </Router>
   )
 }
