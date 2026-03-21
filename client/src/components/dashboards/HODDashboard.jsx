@@ -5,6 +5,7 @@ import EventCard from '../EventCard'
 import BookingTracker from '../BookingTracker'
 import HistorySection from '../HistorySection'
 import { Clock, CheckCircle, FileText, History } from 'lucide-react'
+import { useEmailSetup } from '../../context/EmailSetupContext'
 
 const HODDashboard = () => {
   const [pendingEvents, setPendingEvents] = useState([])
@@ -14,6 +15,7 @@ const HODDashboard = () => {
   const [actionLoading, setActionLoading] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [activeTab, setActiveTab] = useState('pending')
+  const { requireEmailSetup } = useEmailSetup()
 
   useEffect(() => {
     fetchData()
@@ -42,32 +44,35 @@ const HODDashboard = () => {
   }
 
   const handleApprove = async (event) => {
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/approve`)
-      toast.success('Event approved and forwarded to ABC!')
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to approve event')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/approve`)
+        toast.success('Event approved and forwarded to ABC!')
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to approve event')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const handleReject = async (event) => {
     const reason = prompt('Please provide a reason for rejection:')
     if (!reason) return
-
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/reject`, { reason })
-      toast.success('Event rejected')
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to reject event')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/reject`, { reason })
+        toast.success('Event rejected')
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to reject event')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const actionButtons = [

@@ -3,6 +3,7 @@ import axios from 'axios'
 import toast from 'react-hot-toast'
 import { Key, CheckCircle, Clock, Package, User, Calendar, MapPin, FileText, TrendingUp, X } from 'lucide-react'
 import BookingTracker from '../BookingTracker'
+import { useEmailSetup } from '../../context/EmailSetupContext'
 
 const RegistrarDashboard = () => {
   const [pendingKeys, setPendingKeys] = useState([])
@@ -11,6 +12,7 @@ const RegistrarDashboard = () => {
   const [actionLoading, setActionLoading] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [showTracker, setShowTracker] = useState(false)
+  const { requireEmailSetup } = useEmailSetup()
 
   useEffect(() => {
     fetchData()
@@ -35,49 +37,52 @@ const RegistrarDashboard = () => {
 
   const handleKeyCollected = async (event) => {
     if (!confirm('Mark this key as collected?')) return
-    
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/key-collected`, {})
-      toast.success('Key marked as collected!')
-      fetchData()
-    } catch (error) {
-      console.error('[key-collected] Error:', error)
-      toast.error(error.response?.data?.message || 'Failed to mark key as collected')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/key-collected`, {})
+        toast.success('Key marked as collected!')
+        fetchData()
+      } catch (error) {
+        console.error('[key-collected] Error:', error)
+        toast.error(error.response?.data?.message || 'Failed to mark key as collected')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const handleKeyReturned = async (event) => {
     if (!confirm('Mark this key as returned?')) return
-    
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/key-returned`, {})
-      toast.success('Key marked as returned!')
-      fetchData()
-    } catch (error) {
-      console.error('[key-returned] Error:', error)
-      toast.error(error.response?.data?.message || 'Failed to mark key as returned')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/key-returned`, {})
+        toast.success('Key marked as returned!')
+        fetchData()
+      } catch (error) {
+        console.error('[key-returned] Error:', error)
+        toast.error(error.response?.data?.message || 'Failed to mark key as returned')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const handleMarkCompleted = async (event) => {
     if (!confirm(`Mark event as completed? This will notify ${event.studentId?.name} to submit feedback.`)) return
-    
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/mark-completed`)
-      toast.success('Event marked as completed! Faculty will be notified to submit feedback.')
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to mark event as completed')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/mark-completed`)
+        toast.success('Event marked as completed! Faculty will be notified to submit feedback.')
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to mark event as completed')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   if (loading) {

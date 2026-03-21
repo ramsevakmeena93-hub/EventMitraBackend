@@ -5,6 +5,7 @@ import EventCard from '../EventCard'
 import BookingTracker from '../BookingTracker'
 import HistorySection from '../HistorySection'
 import { Clock, CheckCircle, FileText, Edit, Plus, MessageSquare, Calendar, MapPin, History } from 'lucide-react'
+import { useEmailSetup } from '../../context/EmailSetupContext'
 
 const ABCDashboard = () => {
   const [pendingEvents, setPendingEvents] = useState([])
@@ -23,6 +24,7 @@ const ABCDashboard = () => {
   const [activeTab, setActiveTab] = useState('pending')
   const [createVenueId, setCreateVenueId] = useState('')
   const [hods, setHods] = useState([])
+  const { requireEmailSetup } = useEmailSetup()
 
   useEffect(() => {
     fetchData()
@@ -104,33 +106,36 @@ const ABCDashboard = () => {
       venueId: formData.get('venueId'),
       comment: formData.get('comment')
     }
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${editingEvent._id}/abc-modify`, updates)
-      toast.success('Event time/venue updated!')
-      setEditingEvent(null)
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to update event')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${editingEvent._id}/abc-modify`, updates)
+        toast.success('Event time/venue updated!')
+        setEditingEvent(null)
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to update event')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const handleReject = async (event) => {
     const reason = prompt('Please provide a reason for rejection:')
     if (!reason) return
-
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${event._id}/reject`, { reason })
-      toast.success('Event rejected')
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to reject event')
-    } finally {
-      setActionLoading(false)
-    }
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${event._id}/reject`, { reason })
+        toast.success('Event rejected')
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to reject event')
+      } finally {
+        setActionLoading(false)
+      }
+    })
   }
 
   const handleForward = (event) => {
@@ -156,26 +161,28 @@ const ABCDashboard = () => {
       return
     }
 
-    setActionLoading(true)
-    try {
-      await axios.post(`/api/events/${forwardingEvent._id}/approve`, {
-        superAdminIds: selectedSuperAdmins.length > 0 ? selectedSuperAdmins : undefined,
-        comment: comment || undefined,
-        abcFinalApproval: giveFinalApproval
-      })
-      if (giveFinalApproval) {
-        toast.success('Event finally approved by ABC! Ready for key collection.')
-      } else {
-        toast.success(`Event forwarded to ${selectedSuperAdmins.length} Super Admin(s)!`)
+    requireEmailSetup(async () => {
+      setActionLoading(true)
+      try {
+        await axios.post(`/api/events/${forwardingEvent._id}/approve`, {
+          superAdminIds: selectedSuperAdmins.length > 0 ? selectedSuperAdmins : undefined,
+          comment: comment || undefined,
+          abcFinalApproval: giveFinalApproval
+        })
+        if (giveFinalApproval) {
+          toast.success('Event finally approved by ABC! Ready for key collection.')
+        } else {
+          toast.success(`Event forwarded to ${selectedSuperAdmins.length} Super Admin(s)!`)
+        }
+        setForwardingEvent(null)
+        setSelectedSuperAdmins([])
+        fetchData()
+      } catch (error) {
+        toast.error(error.response?.data?.message || 'Failed to process event')
+      } finally {
+        setActionLoading(false)
       }
-      setForwardingEvent(null)
-      setSelectedSuperAdmins([])
-      fetchData()
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to process event')
-    } finally {
-      setActionLoading(false)
-    }
+    })
   }
 
   const handleCreateEvent = async (e) => {
