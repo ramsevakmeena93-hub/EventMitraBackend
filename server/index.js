@@ -101,27 +101,42 @@ app.get('/api/debug-users', async (req, res) => {
   res.json(users);
 });
 
-// Promote users to correct roles by email
+// Clean old roles and promote new users
 app.get('/api/fix-roles', async (req, res) => {
   const User = require('./models/User');
-  const updates = [];
 
-  const roles = [
+  // Delete ALL old abc, superadmin, registrar users
+  const deleted = await User.deleteMany({
+    role: { $in: ['abc', 'superadmin', 'registrar'] }
+  });
+
+  const newUsers = [
     { email: '25it1ad12@mitsgwl.ac.in', name: 'Aditya Kumar Vaidey', role: 'abc' },
     { email: '25ai1am15@mitsgwl.ac.in', name: 'AmanVeer Singh Dugal', role: 'superadmin' },
     { email: '25mc1ma70@mitsgwl.ac.in', name: 'Manash Gupta', role: 'registrar' },
   ];
 
-  for (const u of roles) {
-    const result = await User.findOneAndUpdate(
+  const updates = [];
+  for (const u of newUsers) {
+    // Check if they've already logged in with Google (exist as student)
+    const existing = await User.findOneAndUpdate(
       { email: u.email },
       { name: u.name, role: u.role, isActive: true },
-      { new: true, upsert: false }
+      { new: true }
     );
-    updates.push({ email: u.email, found: !!result, role: result?.role, isActive: result?.isActive });
+    updates.push({
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      status: existing ? 'promoted' : 'not_logged_in_yet'
+    });
   }
 
-  res.json({ updates, note: 'If found=false, the user has not logged in with Google yet. Ask them to login first, then call this endpoint again.' });
+  res.json({
+    deletedOldUsers: deleted.deletedCount,
+    updates,
+    note: 'If status=not_logged_in_yet, ask them to login with Google first, then call this URL again.'
+  });
 });
 
 // Test email endpoint
