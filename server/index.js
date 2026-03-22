@@ -118,6 +118,50 @@ app.get('/api/debug-users', async (req, res) => {
   res.json(users);
 });
 
+// Force fix: delete old roles, upsert new ones directly
+app.get('/api/force-fix-roles', async (req, res) => {
+  const User = require('./models/User');
+  const bcrypt = require('bcryptjs');
+
+  // Delete all old abc/superadmin/registrar
+  const deleted = await User.deleteMany({ role: { $in: ['abc', 'superadmin', 'registrar'] } });
+
+  const randomPass = await bcrypt.hash('EventMitra@2026', 10);
+
+  const newUsers = [
+    { email: '25it1ad12@mitsgwl.ac.in', name: 'Aditya Kumar Vaidey', role: 'abc' },
+    { email: '25ai1am15@mitsgwl.ac.in', name: 'AmanVeer Singh Dugal', role: 'superadmin' },
+    { email: '25mc1ma70@mitsgwl.ac.in', name: 'Manash Gupta', role: 'registrar' },
+  ];
+
+  const results = [];
+  for (const u of newUsers) {
+    // Try to find existing (may have logged in as student)
+    let user = await User.findOne({ email: u.email });
+    if (user) {
+      user.name = u.name;
+      user.role = u.role;
+      user.isActive = true;
+      await user.save();
+      results.push({ email: u.email, status: 'updated existing' });
+    } else {
+      // Create fresh with password
+      await User.create({
+        name: u.name,
+        email: u.email,
+        password: randomPass,
+        role: u.role,
+        isActive: true,
+        branch: 'N/A',
+        enrollmentNo: 'ADMIN-' + u.role.toUpperCase()
+      });
+      results.push({ email: u.email, status: 'created new' });
+    }
+  }
+
+  res.json({ deletedOldUsers: deleted.deletedCount, results });
+});
+
 // Clean old roles and promote new users
 app.get('/api/fix-roles', async (req, res) => {
   const User = require('./models/User');
