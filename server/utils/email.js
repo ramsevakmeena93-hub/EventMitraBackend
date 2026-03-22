@@ -1,42 +1,62 @@
-const nodemailer = require('nodemailer');
+const https = require('https');
 
-const isEmailConfigured = () => !!(process.env.BREVO_USER && process.env.BREVO_PASS);
-
-let systemTransporter = null;
-const getSystemTransporter = () => {
-  if (!systemTransporter) {
-    systemTransporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: process.env.BREVO_USER, // your Brevo login email
-        pass: process.env.BREVO_PASS  // Brevo SMTP key (not your password)
-      }
-    });
-  }
-  return systemTransporter;
-};
+const isEmailConfigured = () => !!(process.env.BREVO_API_KEY);
 
 const sendEmail = async ({ to, subject, html, attachments }) => {
   if (!isEmailConfigured()) {
-    console.log(`[Email] SKIPPED (Brevo not configured) → To: ${to}`);
+    console.log(`[Email] SKIPPED (BREVO_API_KEY not set) → To: ${to}`);
     return { success: false, error: 'Email not configured' };
   }
-  try {
-    const transporter = getSystemTransporter();
-    const mailOptions = {
-      from: `"EventMitra MITS" <${process.env.BREVO_USER}>`,
-      to, subject, html
+
+  const payload = JSON.stringify({
+    sender: { name: 'EventMitra MITS', email: 'eventmitramits@gmail.com' },
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+    ...(attachments && attachments.length > 0 ? {
+      attachment: attachments.map(a => ({
+        name: a.filename,
+        content: require('fs').readFileSync(a.path).toString('base64')
+      }))
+    } : {})
+  });
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.brevo.com',
+      path: '/v3/smtp/email',
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': process.env.BREVO_API_KEY,
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload)
+      }
     };
-    if (attachments && attachments.length > 0) mailOptions.attachments = attachments;
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error(`[Email] FAILED → To: ${to} | Error: ${error.message}`);
-    return { success: false, error: error.message };
-  }
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 201) {
+          const parsed = JSON.parse(data);
+          console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${parsed.messageId}`);
+          resolve({ success: true, messageId: parsed.messageId });
+        } else {
+          console.error(`[Email] FAILED → To: ${to} | Status: ${res.statusCode} | ${data}`);
+          resolve({ success: false, error: data });
+        }
+      });
+    });
+
+    req.on('error', (e) => {
+      console.error(`[Email] FAILED → To: ${to} | Error: ${e.message}`);
+      resolve({ success: false, error: e.message });
+    });
+
+    req.write(payload);
+    req.end();
+  });
 };
 
 const emailTemplates = {
