@@ -46,9 +46,9 @@ const checkAndCompleteEvents = async (io) => {
         event.completedAt = now;
         event.history.push({
           action: 'approved',
-          role: 'system',
+          role: 'superadmin',
           userId: event.facultyId._id,
-          userName: 'System',
+          userName: 'System (Auto)',
           reason: 'Event automatically marked as completed',
           timestamp: now
         });
