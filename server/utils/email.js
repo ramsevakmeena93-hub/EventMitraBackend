@@ -1,14 +1,18 @@
 const nodemailer = require('nodemailer');
 
-const isEmailConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+const isEmailConfigured = () => !!(process.env.BREVO_USER && process.env.BREVO_PASS);
 
 let systemTransporter = null;
 const getSystemTransporter = () => {
   if (!systemTransporter) {
     systemTransporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-      tls: { rejectUnauthorized: false }
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.BREVO_USER, // your Brevo login email
+        pass: process.env.BREVO_PASS  // Brevo SMTP key (not your password)
+      }
     });
   }
   return systemTransporter;
@@ -16,13 +20,13 @@ const getSystemTransporter = () => {
 
 const sendEmail = async ({ to, subject, html, attachments }) => {
   if (!isEmailConfigured()) {
-    console.log(`[Email] SKIPPED (not configured) → To: ${to}`);
+    console.log(`[Email] SKIPPED (Brevo not configured) → To: ${to}`);
     return { success: false, error: 'Email not configured' };
   }
   try {
     const transporter = getSystemTransporter();
     const mailOptions = {
-      from: `"EventMitra MITS" <${process.env.EMAIL_USER}>`,
+      from: `"EventMitra MITS" <${process.env.BREVO_USER}>`,
       to, subject, html
     };
     if (attachments && attachments.length > 0) mailOptions.attachments = attachments;
