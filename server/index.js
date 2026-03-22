@@ -94,6 +94,30 @@ app.get('/api/fix-abc', async (req, res) => {
   res.json({ before: abcUsers.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
 });
 
+// One-time fix endpoint for Super Admin
+app.get('/api/fix-superadmin', async (req, res) => {
+  const User = require('./models/User');
+  const before = await User.find({ role: 'superadmin' });
+  const result = await User.findOneAndUpdate(
+    { role: 'superadmin' },
+    { name: 'AmanVeer Singh Dugal', email: '25ai1am15@mitsgwl.ac.in', isActive: true },
+    { new: true }
+  );
+  res.json({ before: before.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
+});
+
+// One-time fix endpoint for Registrar
+app.get('/api/fix-registrar', async (req, res) => {
+  const User = require('./models/User');
+  const before = await User.find({ role: 'registrar' });
+  const result = await User.findOneAndUpdate(
+    { role: 'registrar' },
+    { name: 'Manash Gupta', email: '25mc1ma70@mitsgwl.ac.in', isActive: true },
+    { new: true }
+  );
+  res.json({ before: before.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
+});
+
 // Test email endpoint
 app.get('/api/test-email', async (req, res) => {
   const { sendEmail } = require('./utils/email');
