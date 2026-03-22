@@ -1,55 +1,37 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-const isEmailConfigured = () => !!process.env.RESEND_API_KEY;
+const isEmailConfigured = () => !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
 
-let resendClient = null;
-const getResend = () => {
-  if (!resendClient) resendClient = new Resend(process.env.RESEND_API_KEY);
-  return resendClient;
+let systemTransporter = null;
+const getSystemTransporter = () => {
+  if (!systemTransporter) {
+    systemTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      tls: { rejectUnauthorized: false }
+    });
+  }
+  return systemTransporter;
 };
 
-// Sender address — use onboarding@resend.dev until you verify your own domain
-const SENDER = process.env.EMAIL_FROM || 'EventMitra MITS <onboarding@resend.dev>';
-
-/**
- * Send email via Resend
- * @param {object} options - { to, subject, html, attachments }
- * attachments: [{ filename, path }] — will be read from disk
- */
 const sendEmail = async ({ to, subject, html, attachments }) => {
   if (!isEmailConfigured()) {
-    console.log(`[Email] SKIPPED (RESEND_API_KEY not set) → To: ${to}`);
+    console.log(`[Email] SKIPPED (not configured) → To: ${to}`);
     return { success: false, error: 'Email not configured' };
   }
-
   try {
-    const resend = getResend();
-
-    const payload = { from: SENDER, to, subject, html };
-
-    // Handle attachments — read files from disk
-    if (attachments && attachments.length > 0) {
-      const fs = require('fs');
-      payload.attachments = attachments
-        .filter(a => a.path && fs.existsSync(a.path))
-        .map(a => ({
-          filename: a.filename,
-          content: fs.readFileSync(a.path)
-        }));
-    }
-
-    const { data, error } = await resend.emails.send(payload);
-
-    if (error) {
-      console.error(`[Email] FAILED → To: ${to} | Error: ${error.message}`);
-      return { success: false, error: error.message };
-    }
-
-    console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${data.id}`);
-    return { success: true, messageId: data.id };
-  } catch (err) {
-    console.error(`[Email] FAILED → To: ${to} | Error: ${err.message}`);
-    return { success: false, error: err.message };
+    const transporter = getSystemTransporter();
+    const mailOptions = {
+      from: `"EventMitra MITS" <${process.env.EMAIL_USER}>`,
+      to, subject, html
+    };
+    if (attachments && attachments.length > 0) mailOptions.attachments = attachments;
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email] SENT → To: ${to} | Subject: ${subject} | ID: ${info.messageId}`);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error(`[Email] FAILED → To: ${to} | Error: ${error.message}`);
+    return { success: false, error: error.message };
   }
 };
 
