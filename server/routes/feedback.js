@@ -253,4 +253,78 @@ router.get('/all/list', auth, authorize(['abc', 'superadmin']), async (req, res)
   }
 });
 
+// Upload event images after completion (faculty only, event creator only)
+router.post('/:eventId/upload-images', auth, authorize('faculty'), async (req, res, next) => {
+  // Lazy-load cloudinary upload to avoid crash if env vars not set
+  let uploadImages;
+  try {
+    uploadImages = require('../config/cloudinary').uploadImages;
+  } catch (e) {
+    return res.status(500).json({ message: 'Image upload not configured', error: e.message });
+  }
+  uploadImages.array('images', 20)(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const event = await Event.findById(eventId).populate('facultyId', 'name email');
+
+    if (!event) return res.status(404).json({ message: 'Event not found' });
+    if (event.facultyId._id.toString() !== req.userId.toString())
+      return res.status(403).json({ message: 'Only the event creator can upload images' });
+    if (event.eventStatus !== 'completed')
+      return res.status(400).json({ message: 'Images can only be uploaded for completed events' });
+    if (!req.files || req.files.length === 0)
+      return res.status(400).json({ message: 'No images uploaded' });
+    if (req.files.length < 5)
+      return res.status(400).json({ message: 'Please upload at least 5 images' });
+
+    const imageUrls = req.files.map(f => f.path);
+    event.images = imageUrls;
+    event.imagesUploadedAt = new Date();
+    await event.save();
+
+    console.log(`[upload-images] ${req.files.length} images uploaded for event ${eventId}`);
+    res.json({ message: `${req.files.length} images uploaded successfully`, images: imageUrls });
+  } catch (error) {
+    console.error('[upload-images] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Get gallery — latest completed event with images (public, no auth needed)
+router.get('/gallery/latest', async (req, res) => {
+  try {
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const event = await Event.findOne({
+      eventStatus: 'completed',
+      'images.0': { $exists: true },
+      imagesUploadedAt: { $gte: oneWeekAgo }
+    })
+      .populate('venueId', 'name')
+      .populate('facultyId', 'name')
+      .sort({ imagesUploadedAt: -1 });
+
+    if (!event) return res.json({ event: null, images: [] });
+
+    res.json({
+      event: {
+        _id: event._id,
+        reason: event.reason,
+        venue: event.venueId?.name,
+        faculty: event.facultyId?.name,
+        date: event.date,
+        completedAt: event.completedAt
+      },
+      images: event.images
+    });
+  } catch (error) {
+    console.error('[gallery-latest] Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;
+

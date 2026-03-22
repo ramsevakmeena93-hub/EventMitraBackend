@@ -216,6 +216,8 @@ const eventSchema = new mongoose.Schema({
     type: String
   },
   
+  images: { type: [String], default: [] },
+  imagesUploadedAt: { type: Date },
   rejectionReason: String,
   
   history: [historySchema],

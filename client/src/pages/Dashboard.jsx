@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import StudentDashboard from '../components/dashboards/StudentDashboard'
 import FacultyDashboard from '../components/dashboards/FacultyDashboard'
@@ -7,7 +9,14 @@ import SuperAdminDashboard from '../components/dashboards/SuperAdminDashboard'
 import RegistrarDashboard from '../components/dashboards/RegistrarDashboard'
 
 const Dashboard = () => {
-  const { user, loading } = useAuth()
+  const { user, loading, pendingFeedbackEvent } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!loading && user?.role === 'faculty' && pendingFeedbackEvent) {
+      navigate(`/feedback/${pendingFeedbackEvent._id}`)
+    }
+  }, [loading, user, pendingFeedbackEvent, navigate])
 
   if (loading) {
     return (
@@ -22,20 +31,13 @@ const Dashboard = () => {
 
   const renderDashboard = () => {
     switch (user?.role) {
-      case 'student':
-        return <StudentDashboard />
-      case 'faculty':
-        return <FacultyDashboard />
-      case 'hod':
-        return <HODDashboard />
-      case 'abc':
-        return <ABCDashboard />
-      case 'superadmin':
-        return <SuperAdminDashboard />
-      case 'registrar':
-        return <RegistrarDashboard />
-      default:
-        return <div>Invalid role</div>
+      case 'student': return <StudentDashboard />
+      case 'faculty': return <FacultyDashboard />
+      case 'hod': return <HODDashboard />
+      case 'abc': return <ABCDashboard />
+      case 'superadmin': return <SuperAdminDashboard />
+      case 'registrar': return <RegistrarDashboard />
+      default: return <div>Invalid role</div>
     }
   }
 

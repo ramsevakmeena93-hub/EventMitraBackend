@@ -13,6 +13,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [pendingFeedbackEvent, setPendingFeedbackEvent] = useState(null)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -28,6 +29,15 @@ export const AuthProvider = ({ children }) => {
     try {
       const { data } = await axios.get('/api/auth/me')
       setUser(data.user)
+      // Check pending feedback for faculty
+      if (data.user?.role === 'faculty') {
+        try {
+          const fbRes = await axios.get('/api/feedback/check-pending')
+          if (fbRes.data.hasPendingFeedback) {
+            setPendingFeedbackEvent(fbRes.data.event)
+          }
+        } catch (_) {}
+      }
     } catch (error) {
       localStorage.removeItem('token')
       delete axios.defaults.headers.common['Authorization']
@@ -77,7 +87,7 @@ export const AuthProvider = ({ children }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, loginWithGoogle, fetchUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, loginWithGoogle, fetchUser, pendingFeedbackEvent, setPendingFeedbackEvent }}>
       {children}
     </AuthContext.Provider>
   )

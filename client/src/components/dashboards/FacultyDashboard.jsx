@@ -4,9 +4,13 @@ import toast from 'react-hot-toast'
 import EventCard from '../EventCard'
 import BookingTracker from '../BookingTracker'
 import HistorySection from '../HistorySection'
-import { Clock, CheckCircle, FileText, History } from 'lucide-react'
+import { Clock, CheckCircle, FileText, History, AlertCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 
 const FacultyDashboard = () => {
+  const navigate = useNavigate()
+  const { pendingFeedbackEvent } = useAuth()
   const [pendingEvents, setPendingEvents] = useState([])
   const [allEvents, setAllEvents] = useState([])
   const [stats, setStats] = useState({})
@@ -108,6 +112,23 @@ const FacultyDashboard = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {pendingFeedbackEvent && (
+        <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-500 rounded-xl p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-amber-900 dark:text-amber-300">Feedback Required</p>
+              <p className="text-sm text-amber-700 dark:text-amber-400">Submit feedback for "{pendingFeedbackEvent.reason}" before booking new events.</p>
+            </div>
+          </div>
+          <button
+            onClick={() => navigate(`/feedback/${pendingFeedbackEvent._id}`)}
+            className="flex-shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-semibold text-sm transition-all"
+          >
+            Submit Now
+          </button>
+        </div>
+      )}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
           Faculty Dashboard
