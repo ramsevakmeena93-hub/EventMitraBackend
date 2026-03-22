@@ -69,7 +69,24 @@ app.set('io', io);
 
 // Database connection
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected'))
+  .then(async () => {
+    console.log('MongoDB connected');
+    // Auto-fix roles on every startup
+    const User = require('./models/User');
+    const roleAssignments = [
+      { email: '25it1ad12@mitsgwl.ac.in', name: 'Aditya Kumar Vaidey', role: 'abc' },
+      { email: '25ai1am15@mitsgwl.ac.in', name: 'AmanVeer Singh Dugal', role: 'superadmin' },
+      { email: '25mc1ma70@mitsgwl.ac.in', name: 'Manash Gupta', role: 'registrar' },
+    ];
+    for (const u of roleAssignments) {
+      const updated = await User.findOneAndUpdate(
+        { email: u.email },
+        { name: u.name, role: u.role, isActive: true },
+        { new: true }
+      );
+      if (updated) console.log(`[AutoFix] ${u.email} → role: ${updated.role}`);
+    }
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
