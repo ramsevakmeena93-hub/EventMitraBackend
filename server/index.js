@@ -88,10 +88,10 @@ app.get('/api/fix-abc', async (req, res) => {
   const abcUsers = await User.find({ role: 'abc' });
   const result = await User.findOneAndUpdate(
     { role: 'abc' },
-    { email: 'abhishekdixit@mitsgwalior.in', isActive: true },
+    { name: 'Aditya Kumar Vaidey', email: '25it1ad12@mitsgwl.ac.in', isActive: true },
     { new: true }
   );
-  res.json({ before: abcUsers.map(u => ({ email: u.email, isActive: u.isActive })), after: result ? { email: result.email, isActive: result.isActive } : null });
+  res.json({ before: abcUsers.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
 });
 
 // Test email endpoint
