@@ -236,17 +236,15 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
     // Use faculty as the applicant
     const faculty = req.user;
 
-    // All venues go through HOD if a HOD exists for the faculty's department
+    // HOD step ONLY if venue explicitly has hodDepartment set (e.g. Seminar Halls)
     let hod = null;
-    let initialStatus = 'pending_abc'; // Default: go to ABC directly
+    let initialStatus = 'pending_abc';
     let currentApprover = 'abc';
 
-    // Try to find HOD by venue's hodDepartment first, then faculty's department
-    const deptToSearch = venue.hodDepartment || faculty.department;
-    if (deptToSearch) {
+    if (venue.hodDepartment) {
       hod = await User.findOne({
         role: 'hod',
-        department: deptToSearch,
+        department: venue.hodDepartment,
         isActive: true
       });
     }
@@ -256,7 +254,7 @@ router.post('/create', auth, authorize('faculty'), (req, res, next) => {
       currentApprover = 'hod';
       console.log('[create-event] Workflow: Faculty → HOD (' + hod.name + ') → ABC → Super Admin');
     } else {
-      console.log('[create-event] Workflow: Faculty → ABC → Super Admin (no HOD found for dept: ' + deptToSearch + ')');
+      console.log('[create-event] Workflow: Faculty → ABC → Super Admin (venue has no hodDepartment)');
     }
 
     const isSeminarHall = venue.name && venue.name.includes('Seminar Hall');
@@ -536,7 +534,8 @@ router.post('/:id/approve', auth, async (req, res) => {
                     <li><strong>Time:</strong> ${event.time}</li>
                   </ul>
                   <p>Please prepare the key for collection.</p>
-                `
+                `,
+                attachments: eventAttachments
               }).catch(e => console.error('[approve-abc-final] Registrar email failed:', e.message));
             }
           } catch (e) { console.error('[approve-abc-final] BG error:', e.message); }
