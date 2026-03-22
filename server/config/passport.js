@@ -29,15 +29,25 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return done(null, user);
         }
 
-        // Create new user (Google sign-up for new students)
+        // Create new user (Google sign-up)
+        // Check if this email is a pre-assigned role
+        const roleMap = {
+          '25it1ad12@mitsgwl.ac.in': { role: 'abc', name: 'Aditya Kumar Vaidey' },
+          '25ai1am15@mitsgwl.ac.in': { role: 'superadmin', name: 'AmanVeer Singh Dugal' },
+          '25mc1ma70@mitsgwl.ac.in': { role: 'registrar', name: 'Manash Gupta' },
+        };
+
+        const email = profile.emails[0].value.toLowerCase();
+        const preAssigned = roleMap[email];
+
         const bcrypt = require('bcryptjs');
         const randomPass = await bcrypt.hash(Math.random().toString(36).slice(-10), 10);
         user = new User({
           googleId: profile.id,
-          name: profile.displayName,
-          email: profile.emails[0].value,
+          name: preAssigned ? preAssigned.name : profile.displayName,
+          email,
           password: randomPass,
-          role: 'student',
+          role: preAssigned ? preAssigned.role : 'student',
           isActive: true,
           branch: 'Not Set',
           enrollmentNo: 'GOOGLE-' + profile.id
