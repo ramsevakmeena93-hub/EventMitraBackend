@@ -11,13 +11,13 @@ const checkAndCompleteEvents = async (io) => {
     console.log('[EventCompletion] Starting event completion check...');
     
     const now = new Date();
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     
-    // Find all approved events that should be completed
-    // Event is completed when: current time > event date + end time
+    // Find all approved events on or before today
     const eventsToComplete = await Event.find({
       status: 'approved',
       eventStatus: { $in: ['upcoming', 'ongoing'] },
-      date: { $lte: now }
+      date: { $lte: todayEnd }
     })
       .populate('facultyId', 'name email')
       .populate('venueId');
@@ -185,14 +185,14 @@ const updateOngoingEvents = async () => {
     console.log('[OngoingEvents] Checking for ongoing events...');
     
     const now = new Date();
+    // Use start-of-day and end-of-day to correctly match today's events
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     
     const events = await Event.find({
       status: 'approved',
       eventStatus: 'upcoming',
-      date: {
-        $gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-        $lte: now
-      }
+      date: { $gte: todayStart, $lte: todayEnd }
     });
 
     let ongoingCount = 0;

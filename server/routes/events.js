@@ -808,19 +808,50 @@ router.get('/all', auth, async (req, res) => {
 });
 
 // Get all approved upcoming/ongoing events (PROTECTED - requires login)
+// Uses real-time filtering — does NOT rely on stale eventStatus field in DB
 router.get('/public/approved', auth, async (req, res) => {
   try {
+    const now = new Date();
+    // Start of today (midnight) — include events happening today
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Fetch all approved events from today onwards
     const events = await Event.find({
       status: 'approved',
-      eventStatus: { $in: ['upcoming', 'ongoing'] }
+      date: { $gte: todayStart }
     })
       .populate('studentId', 'name email branch enrollmentNo')
       .populate('facultyId', 'name email department')
       .populate('venueId')
       .populate('clubId', 'name')
       .sort({ date: 1, startTime: 1 })
-      .limit(50);
-    res.json(events);
+      .limit(100);
+
+    // Filter in real-time: only show events whose end time hasn't passed yet
+    const liveEvents = events.filter(event => {
+      const eventDate = new Date(event.date);
+      const endTime = event.endTime || '18:00';
+      const [endHour, endMin] = endTime.split(':').map(Number);
+      eventDate.setHours(endHour, endMin, 0, 0);
+      return now <= eventDate; // still upcoming or ongoing
+    });
+
+    // Compute real-time eventStatus for each event
+    const result = liveEvents.map(event => {
+      const obj = event.toObject();
+      const eventDate = new Date(event.date);
+      const startTime = event.startTime || '08:00';
+      const endTime = event.endTime || '18:00';
+      const [sh, sm] = startTime.split(':').map(Number);
+      const [eh, em] = endTime.split(':').map(Number);
+      const startDt = new Date(event.date); startDt.setHours(sh, sm, 0, 0);
+      const endDt = new Date(event.date); endDt.setHours(eh, em, 0, 0);
+      if (now >= startDt && now <= endDt) obj.eventStatus = 'ongoing';
+      else obj.eventStatus = 'upcoming';
+      return obj;
+    });
+
+    res.json(result);
   } catch (error) {
     console.error('[approved-events] Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
