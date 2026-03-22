@@ -38,7 +38,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           email: profile.emails[0].value,
           password: randomPass,
           role: 'student',
-          isActive: true
+          isActive: true,
+          branch: 'Not Set',
+          enrollmentNo: 'GOOGLE-' + profile.id.slice(-8)
         });
 
         // Skip pre-save hook for password since we already hashed it
