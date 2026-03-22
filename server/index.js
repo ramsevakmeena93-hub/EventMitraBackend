@@ -94,28 +94,27 @@ app.get('/api/fix-abc', async (req, res) => {
   res.json({ before: abcUsers.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
 });
 
-// One-time fix endpoint for Super Admin
-app.get('/api/fix-superadmin', async (req, res) => {
+// Promote users to correct roles by email
+app.get('/api/fix-roles', async (req, res) => {
   const User = require('./models/User');
-  const before = await User.find({ role: 'superadmin' });
-  const result = await User.findOneAndUpdate(
-    { role: 'superadmin' },
-    { name: 'AmanVeer Singh Dugal', email: '25ai1am15@mitsgwl.ac.in', isActive: true },
-    { new: true }
-  );
-  res.json({ before: before.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
-});
+  const updates = [];
 
-// One-time fix endpoint for Registrar
-app.get('/api/fix-registrar', async (req, res) => {
-  const User = require('./models/User');
-  const before = await User.find({ role: 'registrar' });
-  const result = await User.findOneAndUpdate(
-    { role: 'registrar' },
-    { name: 'Manash Gupta', email: '25mc1ma70@mitsgwl.ac.in', isActive: true },
-    { new: true }
-  );
-  res.json({ before: before.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
+  const roles = [
+    { email: '25it1ad12@mitsgwl.ac.in', name: 'Aditya Kumar Vaidey', role: 'abc' },
+    { email: '25ai1am15@mitsgwl.ac.in', name: 'AmanVeer Singh Dugal', role: 'superadmin' },
+    { email: '25mc1ma70@mitsgwl.ac.in', name: 'Manash Gupta', role: 'registrar' },
+  ];
+
+  for (const u of roles) {
+    const result = await User.findOneAndUpdate(
+      { email: u.email },
+      { name: u.name, role: u.role, isActive: true },
+      { new: true, upsert: false }
+    );
+    updates.push({ email: u.email, found: !!result, role: result?.role, isActive: result?.isActive });
+  }
+
+  res.json({ updates, note: 'If found=false, the user has not logged in with Google yet. Ask them to login first, then call this endpoint again.' });
 });
 
 // Test email endpoint
