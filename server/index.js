@@ -94,6 +94,13 @@ app.get('/api/fix-abc', async (req, res) => {
   res.json({ before: abcUsers.map(u => ({ name: u.name, email: u.email, isActive: u.isActive })), after: result ? { name: result.name, email: result.email, isActive: result.isActive } : null });
 });
 
+// Debug: show all users
+app.get('/api/debug-users', async (req, res) => {
+  const User = require('./models/User');
+  const users = await User.find({}, 'name email role isActive').sort({ role: 1 });
+  res.json(users);
+});
+
 // Promote users to correct roles by email
 app.get('/api/fix-roles', async (req, res) => {
   const User = require('./models/User');
