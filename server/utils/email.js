@@ -15,9 +15,7 @@ let systemTransporter = null;
 const getSystemTransporter = () => {
   if (!systemTransporter) {
     systemTransporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.EMAIL_PORT) || 465,
-      secure: true, // port 465 requires SSL
+      service: 'gmail',
       auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
       tls: { rejectUnauthorized: false }
     });
